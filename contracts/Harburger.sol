@@ -19,6 +19,10 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
     error OnlyNFTOwner();
     error AlreadyNFTOwner();
     error BuyerHasDebt();
+    error NoActiveEarmark();
+    error EarmarkAlreadyActive();
+    error NotEarmarkReceiver();
+    error CannotEarmarkToSelf();
     error OnlyTaxReceiver();
     error TransferNotAllowed();
     error ETHTransferFailed();
@@ -47,9 +51,17 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
         uint64 lastTaxPayment;
     }
 
+    struct Earmark {
+        address creator;         // Owner who created the earmark (deposit should be returned to them)
+        address receiver;
+        uint256 depositAmount;   // Wei escrowed from owner
+        bool active;
+    }
+
     // ============ Storage ============
 
     mapping(address => Account) public accounts;
+    Earmark public earmark;
 
     // ============ Events ============
 
@@ -58,6 +70,9 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
     event Withdrawn(address indexed account, uint256 amount);
     event TaxPaid(address indexed payer, uint256 amount, address indexed receiver);
     event NFTSold(address indexed from, address indexed to, uint256 price);
+    event NFTEarmarked(address indexed from, address indexed to, uint256 deposit);
+    event EarmarkClaimed(address indexed claimer);
+    event EarmarkCancelled(address indexed owner);
     event TaxReceiverUpdated(address indexed oldReceiver, address indexed newReceiver);
     event DebtSettled(address indexed debtor, uint256 debtAmount);
 
@@ -209,6 +224,18 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
             ownerAcc.balance += purchasePrice;
         }
 
+        // Clear any active earmark; return escrowed deposit to the earmark creator.
+        // Without this, the earmark receiver could later call claimEarmark() and
+        // transfer the NFT from the new owner without their consent (NFT theft).
+        if (earmark.active) {
+            uint256 earmarkRefund = earmark.depositAmount;
+            address earmarkCreator = earmark.creator;
+            delete earmark;
+            if (earmarkRefund > 0) {
+                accounts[earmarkCreator].balance += earmarkRefund;
+            }
+        }
+
         address previousOwner = currentOwner;
         currentOwner = msg.sender;
         currentPrice = newPrice;
@@ -218,6 +245,74 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
 
         emit NFTSold(previousOwner, msg.sender, purchasePrice);
         emit PriceSet(msg.sender, newPrice);
+    }
+
+    // ============ Earmark ============
+
+    function earmarkNFT(address receiver, uint256 depositAmount) external nonReentrant settlesTaxes(msg.sender) {
+        if (msg.sender != currentOwner) revert OnlyNFTOwner();
+        if (receiver == address(0)) revert ZeroAddress();
+        if (receiver == msg.sender) revert CannotEarmarkToSelf();
+        if (earmark.active) revert EarmarkAlreadyActive();
+
+        Account storage acc = accounts[msg.sender];
+        if (acc.balance < depositAmount) revert InsufficientBalance();
+
+        if (depositAmount > 0) {
+            acc.balance -= depositAmount;
+        }
+
+        earmark = Earmark({
+            creator: msg.sender,
+            receiver: receiver,
+            depositAmount: depositAmount,
+            active: true
+        });
+
+        emit NFTEarmarked(msg.sender, receiver, depositAmount);
+    }
+
+    function claimEarmark(uint256 newPrice) external nonReentrant {
+        if (!earmark.active) revert NoActiveEarmark();
+        if (msg.sender != earmark.receiver) revert NotEarmarkReceiver();
+        if (newPrice == 0) revert ZeroPrice();
+
+        _updateTaxes(currentOwner);
+        _updateTaxes(msg.sender);
+
+        address previousOwner = currentOwner;
+        uint256 earmarkDeposit = earmark.depositAmount;
+
+        currentOwner = msg.sender;
+        currentPrice = newPrice;
+        _transfer(previousOwner, msg.sender, TOKEN_ID);
+
+        if (earmarkDeposit > 0) {
+            accounts[msg.sender].balance += earmarkDeposit;
+        }
+
+        delete earmark;
+        accounts[msg.sender].lastTaxPayment = uint64(block.timestamp);
+
+        emit EarmarkClaimed(msg.sender);
+        emit PriceSet(msg.sender, newPrice);
+    }
+
+    function cancelEarmark() external nonReentrant settlesTaxes(msg.sender) {
+        if (msg.sender != currentOwner) revert OnlyNFTOwner();
+        if (!earmark.active) revert NoActiveEarmark();
+
+        uint256 refund = earmark.depositAmount;
+        address creator = earmark.creator;
+        delete earmark;
+
+        // Return deposit to whoever created the earmark, not necessarily currentOwner.
+        // This prevents a new owner from claiming the previous owner's escrowed deposit.
+        if (refund > 0) {
+            accounts[creator].balance += refund;
+        }
+
+        emit EarmarkCancelled(msg.sender);
     }
 
     // ============ Admin ============

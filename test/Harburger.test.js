@@ -179,4 +179,68 @@ describe("Harburger", function () {
       ).to.be.revertedWithCustomError(harburger, "TransferNotAllowed");
     });
   });
+
+  describe("Earmark System", function () {
+    beforeEach(async function () {
+      await harburger.connect(owner).deposit({ value: ethers.parseEther("0.5") });
+    });
+
+    it("Should allow owner to earmark NFT", async function () {
+      const deposit = ethers.parseEther("0.1");
+
+      await harburger.connect(owner).earmarkNFT(buyer.address, deposit);
+
+      const earmark = await harburger.earmark();
+      expect(earmark.creator).to.equal(owner.address);
+      expect(earmark.receiver).to.equal(buyer.address);
+      expect(earmark.depositAmount).to.equal(deposit);
+      expect(earmark.active).to.be.true;
+    });
+
+    it("Should allow earmark receiver to claim NFT", async function () {
+      const deposit = ethers.parseEther("0.1");
+      const newPrice = ethers.parseEther("0.2");
+
+      await harburger.connect(owner).earmarkNFT(buyer.address, deposit);
+      await harburger.connect(buyer).claimEarmark(newPrice);
+
+      expect(await harburger.currentOwner()).to.equal(buyer.address);
+      expect(await harburger.currentPrice()).to.equal(newPrice);
+
+      const [buyerBalance] = await harburger.getAccountBalance(buyer.address);
+      expect(buyerBalance).to.equal(deposit);
+    });
+
+    it("Should return earmark deposit to creator on cancel", async function () {
+      const deposit = ethers.parseEther("0.1");
+      const [balanceBefore] = await harburger.getAccountBalance(owner.address);
+
+      await harburger.connect(owner).earmarkNFT(buyer.address, deposit);
+
+      await harburger.connect(owner).cancelEarmark();
+
+      const earmark = await harburger.earmark();
+      expect(earmark.active).to.be.false;
+
+      const [balanceAfter] = await harburger.getAccountBalance(owner.address);
+      expect(balanceAfter).to.be.closeTo(balanceBefore, ethers.parseEther("0.001"));
+    });
+  });
+
+  describe("NFT Trading - Earmark Clearing", function () {
+    beforeEach(async function () {
+      await harburger.connect(owner).deposit({ value: ethers.parseEther("1.0") });
+      await harburger.connect(buyer).deposit({ value: ethers.parseEther("0.5") });
+    });
+
+    it("Should clear active earmark when NFT is bought", async function () {
+      await harburger.connect(owner).deposit({ value: ethers.parseEther("0.01") });
+      await harburger.connect(owner).earmarkNFT(addr3.address, 0);
+
+      await harburger.connect(buyer).buyNFT(ethers.parseEther("0.2"));
+
+      const earmark = await harburger.earmark();
+      expect(earmark.active).to.be.false;
+    });
+  });
 });
