@@ -24,7 +24,8 @@ describe("Harburger", function () {
       NFT_SYMBOL,
       TAX_RATE,
       taxReceiver.address,
-      INITIAL_PRICE
+      INITIAL_PRICE,
+      ethers.ZeroAddress // TaxVault placeholder
     );
     await harburger.waitForDeployment();
   });

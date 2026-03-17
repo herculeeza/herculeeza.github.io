@@ -4,10 +4,12 @@ pragma solidity ^0.8.19;
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "./ITaxVault.sol";
 
 /// @title Harburger
-/// @notice Harberger Tax NFT — owner self-assesses a price and pays continuous tax.
-///         Anyone can force-buy at the declared price.
+/// @notice Harberger Tax NFT with optional yield-bearing vault integration
+/// @dev Single-token ERC721 where the owner must self-assess a price and pay
+///      continuous taxes. Anyone can force-buy at the declared price.
 contract Harburger is ERC721, Ownable, ReentrancyGuard {
 
     // ============ Custom Errors ============
@@ -24,7 +26,9 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
     error NotEarmarkReceiver();
     error CannotEarmarkToSelf();
     error OnlyTaxReceiver();
+    error VaultNotSet();
     error TransferNotAllowed();
+    error OnlyTaxVault();
     error ETHTransferFailed();
 
     // ============ Constants ============
@@ -41,14 +45,16 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
     address public taxReceiver;
     uint256 public currentPrice;
     address public currentOwner;
+    ITaxVault public taxVault;
 
     // ============ Structs ============
 
     struct Account {
-        uint256 balance;
-        uint256 debt;
+        uint256 balance;         // Wei deposited, always ETH-backed
+        uint256 debt;            // Unpaid taxes in Wei
         uint256 totalTaxesPaid;
         uint64 lastTaxPayment;
+        bool usesVault;          // Packed with lastTaxPayment in one slot
     }
 
     struct Earmark {
@@ -75,9 +81,13 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
     event EarmarkCancelled(address indexed owner);
     event TaxReceiverUpdated(address indexed oldReceiver, address indexed newReceiver);
     event DebtSettled(address indexed debtor, uint256 debtAmount);
+    event VaultEnabled(address indexed user);
+    event VaultDisabled(address indexed user);
+    event TaxVaultUpdated(address indexed oldVault, address indexed newVault);
 
     // ============ Modifiers ============
 
+    /// @dev Settle accrued taxes for an account before executing the function body
     modifier settlesTaxes(address account) {
         _updateTaxes(account);
         _;
@@ -90,7 +100,8 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
         string memory _symbol,
         uint256 _taxRate,
         address _taxReceiver,
-        uint256 _initialPrice
+        uint256 _initialPrice,
+        address _taxVault
     ) ERC721(_name, _symbol) {
         if (_taxReceiver == address(0)) revert ZeroAddress();
         if (_taxRate == 0) revert ZeroAmount();
@@ -100,6 +111,7 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
         taxReceiver = _taxReceiver;
         currentPrice = _initialPrice;
         currentOwner = msg.sender;
+        taxVault = ITaxVault(_taxVault);
 
         _mint(msg.sender, TOKEN_ID);
 
@@ -108,6 +120,7 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
 
     // ============ Tax Internals ============
 
+    /// @notice Calculate taxes owed by the current owner since last settlement
     function calculateTaxes(address account) public view returns (uint256) {
         if (account != currentOwner) return 0;
 
@@ -119,6 +132,7 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
         return (currentPrice * taxRate * elapsed) / RATE_PRECISION;
     }
 
+    /// @dev Settle accrued taxes for the current owner
     function _updateTaxes(address account) private {
         if (account != currentOwner) return;
 
@@ -126,9 +140,28 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
         if (taxesOwed == 0) return;
 
         Account storage acc = accounts[account];
-        uint256 paid = _deductOrDebt(acc, taxesOwed);
-        if (paid > 0) {
-            accounts[taxReceiver].balance += paid;
+        uint256 paid;
+
+        if (acc.usesVault && address(taxVault) != address(0)) {
+            bool success = taxVault.payTax(account, taxesOwed);
+
+            if (success) {
+                // Vault sent ETH to this contract — credit the tax receiver
+                acc.totalTaxesPaid += taxesOwed;
+                accounts[taxReceiver].balance += taxesOwed;
+                paid = taxesOwed;
+            } else {
+                // Vault couldn't cover it — accrue as debt
+                paid = _deductOrDebt(acc, taxesOwed);
+                if (paid > 0) {
+                    accounts[taxReceiver].balance += paid;
+                }
+            }
+        } else {
+            paid = _deductOrDebt(acc, taxesOwed);
+            if (paid > 0) {
+                accounts[taxReceiver].balance += paid;
+            }
         }
 
         acc.lastTaxPayment = uint64(block.timestamp);
@@ -138,6 +171,8 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
         }
     }
 
+    /// @dev Deduct `amount` from account balance; any shortfall becomes debt.
+    ///      Returns the amount actually deducted (ETH-backed portion).
     function _deductOrDebt(Account storage acc, uint256 amount) private returns (uint256 paid) {
         if (acc.balance >= amount) {
             acc.balance -= amount;
@@ -145,11 +180,25 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
             return amount;
         }
 
+        // Partial payment — balance covers some, rest becomes debt
         paid = acc.balance;
         uint256 shortfall = amount - acc.balance;
         acc.balance = 0;
         acc.debt += shortfall;
         acc.totalTaxesPaid += paid;
+    }
+
+    // ============ Vault Integration ============
+
+    function enableVault() external nonReentrant settlesTaxes(msg.sender) {
+        if (address(taxVault) == address(0)) revert VaultNotSet();
+        accounts[msg.sender].usesVault = true;
+        emit VaultEnabled(msg.sender);
+    }
+
+    function disableVault() external nonReentrant settlesTaxes(msg.sender) {
+        accounts[msg.sender].usesVault = false;
+        emit VaultDisabled(msg.sender);
     }
 
     // ============ Deposit & Withdrawal ============
@@ -159,6 +208,7 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
 
         Account storage acc = accounts[msg.sender];
 
+        // Pay off debt first
         if (acc.debt > 0) {
             uint256 debtPayment = msg.value >= acc.debt ? acc.debt : msg.value;
             acc.debt -= debtPayment;
@@ -211,6 +261,7 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
         uint256 purchasePrice = currentPrice;
 
         if (ownerAcc.debt > 0) {
+            // Owner has unpaid taxes — NFT is free, debt is forgiven
             if (buyerAcc.debt > 0) revert BuyerHasDebt();
             emit DebtSettled(currentOwner, ownerAcc.debt);
             ownerAcc.debt = 0;
@@ -320,10 +371,12 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
     function updateTaxReceiver(address newTaxReceiver) external onlyOwner {
         if (newTaxReceiver == address(0)) revert ZeroAddress();
 
+        // Settle pending taxes under the old receiver
         _updateTaxes(currentOwner);
 
         address oldReceiver = taxReceiver;
 
+        // Transfer accumulated balance so it isn't stranded
         uint256 oldBalance = accounts[oldReceiver].balance;
         if (oldBalance > 0) {
             accounts[oldReceiver].balance = 0;
@@ -334,12 +387,22 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
         emit TaxReceiverUpdated(oldReceiver, newTaxReceiver);
     }
 
+    function updateTaxVault(address newTaxVault) external onlyOwner {
+        address oldVault = address(taxVault);
+        taxVault = ITaxVault(newTaxVault);
+        emit TaxVaultUpdated(oldVault, newTaxVault);
+    }
+
     // ============ View ============
 
     function getAccountBalance(address user) external view returns (uint256 balance, uint256 debt) {
         Account memory acc = accounts[user];
         balance = acc.balance;
         debt = acc.debt;
+
+        if (acc.usesVault && address(taxVault) != address(0)) {
+            balance += taxVault.getTotalBalance(user);
+        }
 
         if (user == currentOwner) {
             uint256 pendingTax = calculateTaxes(user);
@@ -376,5 +439,8 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
 
     // ============ Receive ============
 
-    receive() external payable {}
+    /// @notice Accept ETH only from TaxVault (for tax payments)
+    receive() external payable {
+        if (msg.sender != address(taxVault)) revert OnlyTaxVault();
+    }
 }
