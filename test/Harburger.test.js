@@ -163,6 +163,24 @@ describe("Harburger", function () {
     });
   });
 
+  describe("Token URI", function () {
+    it("Should return on-chain base64 JSON with SVG image", async function () {
+      const tokenURI = await harburger.tokenURI(1);
+      expect(tokenURI).to.match(/^data:application\/json;base64,/);
+
+      const json = JSON.parse(
+        Buffer.from(tokenURI.split(",")[1], "base64").toString()
+      );
+      expect(json.name).to.include("Test Harburger");
+      expect(json.description).to.be.a("string");
+      expect(json.image).to.match(/^data:image\/svg\+xml;base64,/);
+    });
+
+    it("Should revert for non-existent token", async function () {
+      await expect(harburger.tokenURI(999)).to.be.reverted;
+    });
+  });
+
   describe("Transfer Restrictions", function () {
     it("Should prevent direct transferFrom", async function () {
       await expect(

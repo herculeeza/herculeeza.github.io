@@ -4,6 +4,8 @@ pragma solidity ^0.8.19;
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Base64.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
 import "./ITaxVault.sol";
 
 /// @title Harburger
@@ -413,6 +415,50 @@ contract Harburger is ERC721, Ownable, ReentrancyGuard {
                 balance = 0;
             }
         }
+    }
+
+    function tokenURI(uint256 _tokenId) public view override returns (string memory) {
+        if (_ownerOf(_tokenId) == address(0)) revert ZeroAddress();
+
+        string memory svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">'
+            '<rect width="120" height="120" rx="16" fill="#FFF3E0"/>'
+            // Top bun
+            '<ellipse cx="60" cy="42" rx="34" ry="18" fill="#E8933A"/>'
+            '<ellipse cx="60" cy="40" rx="34" ry="18" fill="#F5A623"/>'
+            // Sesame seeds
+            '<ellipse cx="48" cy="35" rx="3" ry="2" fill="#FFF8E1" transform="rotate(-20 48 35)"/>'
+            '<ellipse cx="65" cy="32" rx="3" ry="2" fill="#FFF8E1" transform="rotate(15 65 32)"/>'
+            '<ellipse cx="55" cy="28" rx="3" ry="2" fill="#FFF8E1" transform="rotate(-10 55 28)"/>'
+            '<ellipse cx="72" cy="38" rx="3" ry="2" fill="#FFF8E1" transform="rotate(10 72 38)"/>'
+            // Lettuce
+            '<path d="M26 56 Q35 48 45 54 Q55 48 65 54 Q75 48 85 54 Q95 48 94 56" fill="#4CAF50" stroke="#388E3C" stroke-width="0.5"/>'
+            // Tomato
+            '<rect x="28" y="56" width="64" height="8" rx="3" fill="#F44336"/>'
+            // Cheese
+            '<polygon points="26,64 30,72 42,64 50,72 62,64 70,72 82,64 90,72 94,64" fill="#FFC107"/>'
+            // Patty
+            '<rect x="28" y="70" width="64" height="12" rx="6" fill="#5D4037"/>'
+            '<rect x="28" y="70" width="64" height="6" rx="3" fill="#6D4C41"/>'
+            // Bottom bun
+            '<rect x="28" y="82" width="64" height="12" rx="6" fill="#F5A623"/>'
+            '<rect x="28" y="82" width="64" height="6" rx="3" fill="#E8933A"/>'
+            '</svg>';
+
+        string memory image = string(abi.encodePacked(
+            "data:image/svg+xml;base64,",
+            Base64.encode(bytes(svg))
+        ));
+
+        string memory json = string(abi.encodePacked(
+            '{"name":"', name(), ' #', Strings.toString(_tokenId),
+            '","description":"Harberger tax NFT. Set your price, pay your taxes, or someone buys it from under you."',
+            ',"image":"', image, '"}'
+        ));
+
+        return string(abi.encodePacked(
+            "data:application/json;base64,",
+            Base64.encode(bytes(json))
+        ));
     }
 
     // ============ Transfer Restrictions ============
