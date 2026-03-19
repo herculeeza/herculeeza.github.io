@@ -10,9 +10,12 @@ describe("Harburger", function () {
 
   const NFT_NAME = "Test Harburger";
   const NFT_SYMBOL = "THBRG";
+  // 10% annual tax rate scaled by RATE_PRECISION (1e18)
+  // = 0.10 / 31_536_000 * 1e18 ≈ 3_170_979_198
   const SECONDS_PER_YEAR = 31536000n;
   const RATE_PRECISION = 10n ** 18n;
-  const TAX_RATE = (10n * RATE_PRECISION) / (100n * SECONDS_PER_YEAR);
+  const TAX_RATE = (10n * RATE_PRECISION) / (100n * SECONDS_PER_YEAR); // ~3170979198
+  // Price in wei (0.1 ETH)
   const INITIAL_PRICE = ethers.parseEther("0.1");
 
   beforeEach(async function () {
@@ -53,7 +56,9 @@ describe("Harburger", function () {
   describe("Deposits and Withdrawals", function () {
     it("Should allow deposits", async function () {
       const depositAmount = ethers.parseEther("0.5");
+
       await harburger.connect(buyer).deposit({ value: depositAmount });
+
       const [balance] = await harburger.getAccountBalance(buyer.address);
       expect(balance).to.equal(depositAmount);
     });
@@ -61,8 +66,10 @@ describe("Harburger", function () {
     it("Should allow withdrawals", async function () {
       const depositAmount = ethers.parseEther("0.5");
       await harburger.connect(buyer).deposit({ value: depositAmount });
+
       const withdrawAmount = ethers.parseEther("0.2");
       await harburger.connect(buyer).withdraw(withdrawAmount);
+
       const [balance] = await harburger.getAccountBalance(buyer.address);
       expect(balance).to.equal(depositAmount - withdrawAmount);
     });
@@ -78,6 +85,7 @@ describe("Harburger", function () {
     it("Should allow owner to set price", async function () {
       const newPrice = ethers.parseEther("0.5");
       await harburger.connect(owner).setPrice(newPrice);
+
       expect(await harburger.currentPrice()).to.equal(newPrice);
     });
 
@@ -90,13 +98,18 @@ describe("Harburger", function () {
 
   describe("NFT Trading", function () {
     beforeEach(async function () {
+      // Owner deposits so accrued taxes don't push them into debt
+      // (debt triggers the free-buy/forgiveness path, bypassing normal payment)
       await harburger.connect(owner).deposit({ value: ethers.parseEther("1.0") });
+      // Give buyer enough balance to cover the current price
       await harburger.connect(buyer).deposit({ value: ethers.parseEther("0.5") });
     });
 
     it("Should allow buying NFT", async function () {
       const newPrice = ethers.parseEther("0.2");
+
       await harburger.connect(buyer).buyNFT(newPrice);
+
       expect(await harburger.currentOwner()).to.equal(buyer.address);
       expect(await harburger.currentPrice()).to.equal(newPrice);
       expect(await harburger.ownerOf(1)).to.equal(buyer.address);
@@ -105,97 +118,38 @@ describe("Harburger", function () {
     it("Should transfer payment correctly", async function () {
       const [initialBuyerBalance] = await harburger.getAccountBalance(buyer.address);
       const [initialOwnerBalance] = await harburger.getAccountBalance(owner.address);
+
       await harburger.connect(buyer).buyNFT(ethers.parseEther("0.2"));
+
       const [finalBuyerBalance] = await harburger.getAccountBalance(buyer.address);
       const [finalOwnerBalance] = await harburger.getAccountBalance(owner.address);
+
+      // Buyer paid INITIAL_PRICE; owner received it (minus small accrued taxes)
       expect(finalBuyerBalance).to.equal(initialBuyerBalance - INITIAL_PRICE);
-      const tolerance = ethers.parseEther("0.001");
+      const tolerance = ethers.parseEther("0.001"); // small tax accrual between blocks
       expect(finalOwnerBalance).to.be.closeTo(initialOwnerBalance + INITIAL_PRICE, tolerance);
     });
 
     it("Should revert if buyer has insufficient balance", async function () {
+      // addr3 deposits much less than INITIAL_PRICE
       await harburger.connect(addr3).deposit({ value: ethers.parseEther("0.01") });
+
       await expect(
         harburger.connect(addr3).buyNFT(ethers.parseEther("0.2"))
       ).to.be.revertedWithCustomError(harburger, "InsufficientBalance");
     });
-  });
 
-  describe("Tax System", function () {
-    beforeEach(async function () {
-      await harburger.connect(owner).deposit({ value: ethers.parseEther("1.0") });
-    });
+    it("Should clear active earmark when NFT is bought", async function () {
+      // Owner creates an earmark for addr3
+      await harburger.connect(owner).deposit({ value: ethers.parseEther("0.01") });
+      await harburger.connect(owner).earmarkNFT(addr3.address, 0);
 
-    it("Should calculate taxes with RATE_PRECISION", async function () {
-      await ethers.provider.send("evm_increaseTime", [100]);
-      await ethers.provider.send("evm_mine");
-      const taxesOwed = await harburger.calculateTaxes(owner.address);
-      const expectedTax = (INITIAL_PRICE * TAX_RATE * 100n) / RATE_PRECISION;
-      expect(taxesOwed).to.be.closeTo(expectedTax, ethers.parseEther("0.0001"));
-    });
+      // Buyer buys the NFT
+      await harburger.connect(buyer).buyNFT(ethers.parseEther("0.2"));
 
-    it("Should produce reasonable annual tax amounts", async function () {
-      await ethers.provider.send("evm_increaseTime", [31536000]);
-      await ethers.provider.send("evm_mine");
-      const taxesOwed = await harburger.calculateTaxes(owner.address);
-      const expectedAnnualTax = ethers.parseEther("0.01");
-      expect(taxesOwed).to.be.closeTo(expectedAnnualTax, ethers.parseEther("0.0001"));
-    });
-
-    it("Should update taxes when setting price", async function () {
-      const [initialBalance] = await harburger.getAccountBalance(owner.address);
-      await ethers.provider.send("evm_increaseTime", [100]);
-      await ethers.provider.send("evm_mine");
-      await harburger.connect(owner).setPrice(ethers.parseEther("0.2"));
-      const [finalBalance] = await harburger.getAccountBalance(owner.address);
-      expect(finalBalance).to.be.lt(initialBalance);
-    });
-
-    it("Should allow tax receiver to withdraw accumulated taxes", async function () {
-      await ethers.provider.send("evm_increaseTime", [100]);
-      await ethers.provider.send("evm_mine");
-      await harburger.connect(owner).setPrice(INITIAL_PRICE);
-      const [taxBalance] = await harburger.getAccountBalance(taxReceiver.address);
-      expect(taxBalance).to.be.gt(0n);
-      await harburger.connect(taxReceiver).withdraw(taxBalance);
-      const [finalTaxBalance] = await harburger.getAccountBalance(taxReceiver.address);
-      expect(finalTaxBalance).to.equal(0n);
-    });
-  });
-
-  describe("Token URI", function () {
-    it("Should return on-chain base64 JSON with SVG image", async function () {
-      const tokenURI = await harburger.tokenURI(1);
-      expect(tokenURI).to.match(/^data:application\/json;base64,/);
-
-      const json = JSON.parse(
-        Buffer.from(tokenURI.split(",")[1], "base64").toString()
-      );
-      expect(json.name).to.include("Test Harburger");
-      expect(json.description).to.be.a("string");
-      expect(json.image).to.match(/^data:image\/svg\+xml;base64,/);
-    });
-
-    it("Should revert for non-existent token", async function () {
-      await expect(harburger.tokenURI(999)).to.be.reverted;
-    });
-  });
-
-  describe("Transfer Restrictions", function () {
-    it("Should prevent direct transferFrom", async function () {
-      await expect(
-        harburger.connect(owner).transferFrom(owner.address, buyer.address, 1)
-      ).to.be.revertedWithCustomError(harburger, "TransferNotAllowed");
-    });
-
-    it("Should prevent safeTransferFrom", async function () {
-      await expect(
-        harburger.connect(owner)["safeTransferFrom(address,address,uint256)"](
-          owner.address,
-          buyer.address,
-          1
-        )
-      ).to.be.revertedWithCustomError(harburger, "TransferNotAllowed");
+      // Earmark must be cleared — addr3 cannot claim after the sale
+      const earmark = await harburger.earmark();
+      expect(earmark.active).to.be.false;
     });
   });
 
@@ -246,20 +200,97 @@ describe("Harburger", function () {
     });
   });
 
-  describe("NFT Trading - Earmark Clearing", function () {
+  describe("Tax System", function () {
     beforeEach(async function () {
       await harburger.connect(owner).deposit({ value: ethers.parseEther("1.0") });
-      await harburger.connect(buyer).deposit({ value: ethers.parseEther("0.5") });
     });
 
-    it("Should clear active earmark when NFT is bought", async function () {
-      await harburger.connect(owner).deposit({ value: ethers.parseEther("0.01") });
-      await harburger.connect(owner).earmarkNFT(addr3.address, 0);
+    it("Should calculate taxes with RATE_PRECISION", async function () {
+      // Advance 100 seconds
+      await ethers.provider.send("evm_increaseTime", [100]);
+      await ethers.provider.send("evm_mine");
 
-      await harburger.connect(buyer).buyNFT(ethers.parseEther("0.2"));
+      const taxesOwed = await harburger.calculateTaxes(owner.address);
+      // formula: (price * taxRate * elapsed) / RATE_PRECISION
+      const expectedTax = (INITIAL_PRICE * TAX_RATE * 100n) / RATE_PRECISION;
 
-      const earmark = await harburger.earmark();
-      expect(earmark.active).to.be.false;
+      expect(taxesOwed).to.be.closeTo(expectedTax, ethers.parseEther("0.0001"));
+    });
+
+    it("Should produce reasonable annual tax amounts", async function () {
+      // Advance 1 year
+      await ethers.provider.send("evm_increaseTime", [31536000]);
+      await ethers.provider.send("evm_mine");
+
+      const taxesOwed = await harburger.calculateTaxes(owner.address);
+      // 10% of 0.1 ETH = 0.01 ETH per year
+      const expectedAnnualTax = ethers.parseEther("0.01");
+
+      expect(taxesOwed).to.be.closeTo(expectedAnnualTax, ethers.parseEther("0.0001"));
+    });
+
+    it("Should update taxes when setting price", async function () {
+      const [initialBalance] = await harburger.getAccountBalance(owner.address);
+
+      await ethers.provider.send("evm_increaseTime", [100]);
+      await ethers.provider.send("evm_mine");
+
+      await harburger.connect(owner).setPrice(ethers.parseEther("0.2"));
+
+      const [finalBalance] = await harburger.getAccountBalance(owner.address);
+      expect(finalBalance).to.be.lt(initialBalance);
+    });
+
+    it("Should allow tax receiver to withdraw accumulated taxes", async function () {
+      await ethers.provider.send("evm_increaseTime", [100]);
+      await ethers.provider.send("evm_mine");
+
+      // Trigger tax settlement
+      await harburger.connect(owner).setPrice(INITIAL_PRICE);
+
+      const [taxBalance] = await harburger.getAccountBalance(taxReceiver.address);
+      expect(taxBalance).to.be.gt(0n);
+
+      await harburger.connect(taxReceiver).withdraw(taxBalance);
+
+      const [finalTaxBalance] = await harburger.getAccountBalance(taxReceiver.address);
+      expect(finalTaxBalance).to.equal(0n);
+    });
+  });
+
+  describe("Token URI", function () {
+    it("Should return on-chain base64 JSON with SVG image", async function () {
+      const tokenURI = await harburger.tokenURI(1);
+      expect(tokenURI).to.match(/^data:application\/json;base64,/);
+
+      const json = JSON.parse(
+        Buffer.from(tokenURI.split(",")[1], "base64").toString()
+      );
+      expect(json.name).to.include("Test Harburger");
+      expect(json.description).to.be.a("string");
+      expect(json.image).to.match(/^data:image\/svg\+xml;base64,/);
+    });
+
+    it("Should revert for non-existent token", async function () {
+      await expect(harburger.tokenURI(999)).to.be.reverted;
+    });
+  });
+
+  describe("Transfer Restrictions", function () {
+    it("Should prevent direct transferFrom", async function () {
+      await expect(
+        harburger.connect(owner).transferFrom(owner.address, buyer.address, 1)
+      ).to.be.revertedWithCustomError(harburger, "TransferNotAllowed");
+    });
+
+    it("Should prevent safeTransferFrom", async function () {
+      await expect(
+        harburger.connect(owner)["safeTransferFrom(address,address,uint256)"](
+          owner.address,
+          buyer.address,
+          1
+        )
+      ).to.be.revertedWithCustomError(harburger, "TransferNotAllowed");
     });
   });
 });

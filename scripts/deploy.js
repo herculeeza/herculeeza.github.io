@@ -9,7 +9,7 @@ async function main() {
   console.log("Account balance:", (await ethers.provider.getBalance(deployer.address)).toString());
 
   // ============ Configuration ============
-
+  
   // Harburger NFT configuration
   const NFT_NAME = process.env.NFT_NAME || "Harburger NFT";
   const NFT_SYMBOL = process.env.NFT_SYMBOL || "HBRG";

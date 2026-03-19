@@ -70,19 +70,19 @@ contract AaveStrategy is IYieldStrategy {
 
     function deposit() external payable onlyVault returns (uint256 shares) {
         if (msg.value == 0) revert ZeroAmount();
-
+        
         // Wrap ETH to WETH
         weth.deposit{value: msg.value}();
-
+        
         // Approve Aave pool
         weth.approve(address(aavePool), msg.value);
-
+        
         // Supply to Aave (receives aWETH in return)
         aavePool.supply(address(weth), msg.value, address(this), 0);
-
+        
         return msg.value; // Return shares (1:1 initially)
     }
-
+    
     function withdraw(uint256 amount) external onlyVault returns (uint256) {
         if (amount == 0) revert ZeroAmount();
 
@@ -118,8 +118,8 @@ contract AaveStrategy is IYieldStrategy {
 
         return withdrawn;
     }
-
+    
     // ============ Receive Function ============
-
+    
     receive() external payable {}
 }

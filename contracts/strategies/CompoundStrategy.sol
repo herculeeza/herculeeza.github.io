@@ -58,19 +58,19 @@ contract CompoundStrategy is IYieldStrategy {
 
     function deposit() external payable onlyVault returns (uint256 shares) {
         if (msg.value == 0) revert ZeroAmount();
-
+        
         // Wrap ETH to WETH
         weth.deposit{value: msg.value}();
-
+        
         // Approve Compound
         weth.approve(address(comet), msg.value);
-
+        
         // Supply to Compound
         comet.supply(address(weth), msg.value);
-
+        
         return msg.value;
     }
-
+    
     function withdraw(uint256 amount) external onlyVault returns (uint256) {
         if (amount == 0) revert ZeroAmount();
 
@@ -109,8 +109,8 @@ contract CompoundStrategy is IYieldStrategy {
 
         return balance;
     }
-
+    
     // ============ Receive Function ============
-
+    
     receive() external payable {}
 }

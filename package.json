@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "compile": "hardhat compile",
+    "lint": "solhint 'contracts/**/*.sol'",
     "test": "hardhat test",
     "deploy": "hardhat run scripts/deploy.js",
     "deploy:localhost": "hardhat run scripts/deploy.js --network localhost",
@@ -15,8 +16,9 @@
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@openzeppelin/contracts": "^4.9.0",
     "hardhat": "^2.19.0",
-    "@openzeppelin/contracts": "^4.9.0"
+    "solhint": "^6.1.0"
   },
   "dependencies": {
     "dotenv": "^16.3.1"
