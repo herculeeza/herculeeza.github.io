@@ -38,6 +38,7 @@ export function useHarburger() {
   const [contract, setContract] = useState(null);
   const [vaultContract, setVaultContract] = useState(null);
   const [strategies, setStrategies] = useState([]); // approved yield strategies
+  const [strategyNames, setStrategyNames] = useState({}); // address -> human name
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -161,6 +162,23 @@ export function useHarburger() {
           setVaultContract(vInst);
           const strats = await vInst.getApprovedStrategies();
           setStrategies(strats);
+
+          // Resolve human-readable names for strategies
+          const names = {};
+          for (const addr of strats) {
+            try {
+              const s = new ethers.Contract(addr, [
+                "function aavePool() view returns (address)",
+                "function comet() view returns (address)",
+              ], signer);
+              try { await s.aavePool(); names[addr] = 'Aave V3 WETH'; continue; } catch {}
+              try { await s.comet(); names[addr] = 'Compound V3 WETH'; continue; } catch {}
+              names[addr] = `Strategy (${addr.slice(0, 6)}…${addr.slice(-4)})`;
+            } catch {
+              names[addr] = `Strategy (${addr.slice(0, 6)}…${addr.slice(-4)})`;
+            }
+          }
+          setStrategyNames(names);
         }
       } catch (e) { console.error('Vault setup error:', e); }
     } catch (err) {
@@ -225,16 +243,44 @@ export function useHarburger() {
     } catch (err) { console.error('Error loading contract data:', err); }
   }, [contract]);
 
+  const loadTopTaxpayers = useCallback(async () => {
+    if (!contract) return;
+    try {
+      const filter = contract.filters.TaxPaid();
+      const events = await contract.queryFilter(filter, 0, 'latest');
+      const totals = {};
+      for (const e of events) {
+        const payer = e.args[0];
+        const amount = e.args[1];
+        totals[payer] = (totals[payer] || 0n) + amount;
+      }
+      const sorted = Object.entries(totals)
+        .map(([address, total]) => ({ address, total: total.toString() }))
+        .sort((a, b) => (BigInt(b.total) > BigInt(a.total) ? 1 : -1))
+        .slice(0, 10);
+      setTopTaxpayers(sorted);
+    } catch (err) { console.error('Error loading top taxpayers:', err); }
+  }, [contract]);
+
+  useEffect(() => {
+    if (contract) loadTopTaxpayers();
+  }, [contract, loadTopTaxpayers]);
+
   const [vaultBreakdown, setVaultBreakdown] = useState([]);
+  const [walletBalance, setWalletBalance] = useState('0');
+  const [topTaxpayers, setTopTaxpayers] = useState([]);
 
   const loadAccountData = useCallback(async () => {
     if (!account || !contract) return;
     try {
-      const [info, [netBalance, debt], taxesOwed] = await Promise.all([
+      const provider = contract.runner?.provider;
+      const [info, [netBalance, debt], taxesOwed, ethBal] = await Promise.all([
         contract.accounts(account),
         contract.getAccountBalance(account),
-        contract.calculateTaxes(account)
+        contract.calculateTaxes(account),
+        provider ? provider.getBalance(account) : 0n
       ]);
+      setWalletBalance(ethBal.toString());
       setAccountData({
         netBalance: netBalance.toString(), debt: debt.toString(),
         rawBalance: info.balance.toString(),
@@ -427,9 +473,9 @@ export function useHarburger() {
   return {
     account, loading, error, setError, success,
     contractData, accountData, earmark,
-    isOwner, isEarmarkReceiver, vaultBalance,
+    isOwner, isEarmarkReceiver, vaultBalance, walletBalance, topTaxpayers,
     vaultEnabled: accountData.usesVault && !!vaultContract,
-    strategies, vaultBreakdown,
+    strategies, strategyNames, vaultBreakdown,
     connectWallet,
     handleDeposit, handleWithdraw, handleSetPrice, handleBuyNFT,
     handleEarmark, handleClaimEarmark, handleCancelEarmark,
