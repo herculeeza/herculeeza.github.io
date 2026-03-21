@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { ethers } from 'ethers';
-import { AlertCircle, Wallet, DollarSign, Tag, Gift, TrendingUp, ExternalLink, Github, ArrowDownUp, ArrowRightLeft, ChevronDown } from 'lucide-react';
+import { AlertCircle, Wallet, DollarSign, Tag, Gift, TrendingUp, ExternalLink, Github, ArrowDownUp, ArrowRightLeft, ChevronDown, Pencil, Check, X } from 'lucide-react';
 import { CONTRACT_ADDRESS } from './contractABI';
 import { useHarburger } from './hooks/useHarburger';
 
@@ -77,6 +77,7 @@ const App = () => {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [vaultMgmtOpen, setVaultMgmtOpen] = useState(false);
   const [earmarkOpen, setEarmarkOpen] = useState(false);
+  const [editingPrice, setEditingPrice] = useState(false);
 
   const isValidRecipient = (val) => {
     if (!val) return false;
@@ -215,9 +216,46 @@ const App = () => {
                   </h2>
                   <div className="bg-orange-50 rounded-lg p-4 mb-3">
                     <div className="text-sm text-orange-700">Current Price</div>
-                    <div className="font-bold text-2xl text-orange-600 font-mono">
-                      {formatEther(contractData.currentPrice)} ETH
+                    <div className="flex items-center gap-2">
+                      <div className="font-bold text-2xl text-orange-600 font-mono">
+                        {formatEther(contractData.currentPrice)} ETH
+                      </div>
+                      {isOwner && !editingPrice && (
+                        <button
+                          onClick={() => setEditingPrice(true)}
+                          className="text-orange-400 hover:text-orange-600 transition-colors"
+                          title="Change price"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      )}
                     </div>
+                    {isOwner && editingPrice && (
+                      <div className="flex gap-2 mt-2">
+                        <input
+                          type="number" min="0"
+                          value={newPrice}
+                          onChange={(e) => setNewPrice(e.target.value)}
+                          placeholder="New price in ETH"
+                          step="0.001"
+                          className="flex-1 min-w-0 px-3 py-1.5 text-sm border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                          autoFocus
+                        />
+                        <button
+                          onClick={async () => { if (await handleSetPrice(newPrice)) { setNewPrice(''); setEditingPrice(false); } }}
+                          disabled={loading || !newPrice || parseFloat(newPrice) <= 0}
+                          className="bg-orange-500 text-white p-1.5 rounded-lg hover:bg-orange-600 disabled:bg-gray-400"
+                        >
+                          <Check size={16} />
+                        </button>
+                        <button
+                          onClick={() => { setNewPrice(''); setEditingPrice(false); }}
+                          className="text-gray-400 hover:text-gray-600 p-1.5"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    )}
                     <div className="flex items-center gap-1 mt-2 text-xs text-gray-500">
                       <span>Owner:</span>
                       <ExplorerLink address={contractData.currentOwner}>
@@ -596,38 +634,6 @@ const App = () => {
                 </div>
               ))}
             </div>
-
-            {/* Owner Actions */}
-            {isOwner && (
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                  <TrendingUp size={20} className="text-orange-500" />
-                  Owner Actions
-                </h2>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Set New Price (ETH)</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="number" min="0"
-                        value={newPrice}
-                        onChange={(e) => setNewPrice(e.target.value)}
-                        placeholder="0.002"
-                        step="0.001"
-                        className="flex-1 min-w-0 px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                      />
-                      <button
-                        onClick={async () => { if (await handleSetPrice(newPrice)) setNewPrice(''); }}
-                        disabled={loading || !newPrice || parseFloat(newPrice) <= 0}
-                        className="bg-orange-500 text-white px-6 py-2 rounded-lg hover:bg-orange-600 disabled:bg-gray-400 whitespace-nowrap"
-                      >
-                        Set Price
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Buy NFT */}
             {!isOwner && (
