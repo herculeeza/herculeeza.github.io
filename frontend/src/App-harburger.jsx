@@ -132,8 +132,8 @@ const App = () => {
               <span className={aboutOpen ? '' : 'inline-block animate-bounce'}>🍔</span>
             </button>
             {!aboutOpen && (
-              <p className="text-orange-400 text-sm mt-2 animate-pulse text-center">
-                This is the HARBURGER.<br />Go ahead... click it.
+              <p className="text-orange-300 text-sm mt-2 animate-pulse text-center">
+                this is HARBURGER<br />go ahead... click
               </p>
             )}
           </div>
