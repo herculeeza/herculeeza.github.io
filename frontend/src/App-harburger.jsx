@@ -100,8 +100,8 @@ const App = () => {
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <h1 className="text-2xl sm:text-3xl font-bold text-orange-600">🍔 HARBURGER</h1>
-              <p className="text-sm sm:text-base text-gray-600 hidden sm:block">A Deliciously Taxing NFT</p>
+              <h1 className="text-xl sm:text-3xl font-bold text-orange-600 whitespace-nowrap">🍔 HARBURGER</h1>
+              <p className="text-xs sm:text-base text-gray-600 hidden sm:block">A Deliciously Taxing NFT</p>
             </div>
             {!account ? (
               <button
@@ -133,7 +133,7 @@ const App = () => {
               <span className={aboutOpen ? '' : 'inline-block animate-bounce'}>🍔</span>
             </button>
             {!aboutOpen && (
-              <p className="text-orange-300 text-sm mt-2 animate-pulse text-center">
+              <p className="text-orange-400 font-semibold text-base mt-2 animate-pulse text-center drop-shadow-sm">
                 this is HARBURGER<br />go ahead... click
               </p>
             )}
