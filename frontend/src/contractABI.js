@@ -57,4 +57,14 @@ export const CONTRACT_ABI = [
   "error ETHTransferFailed()"
 ];
 
+export const TAX_VAULT_ABI = [
+  "function deposit(address strategy) payable",
+  "function withdraw(address strategy, uint256 amount)",
+  "function moveStrategy(address from, address to, uint256 amount)",
+  "function getTotalBalance(address user) view returns (uint256)",
+  "function getBalanceBreakdown(address user) view returns (address[] strategies, uint256[] balances)",
+  "function getApprovedStrategies() view returns (address[])",
+  "function IDLE_STRATEGY() view returns (address)",
+];
+
 export const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS || "";

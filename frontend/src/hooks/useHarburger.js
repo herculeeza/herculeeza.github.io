@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { ethers } from 'ethers';
-import { CONTRACT_ABI, CONTRACT_ADDRESS } from '../contractABI';
+import { CONTRACT_ABI, CONTRACT_ADDRESS, TAX_VAULT_ABI } from '../contractABI';
 
 const RATE_PRECISION = 10n ** 18n;
 const SECONDS_PER_YEAR = 31536000n;
@@ -36,6 +36,8 @@ function annualTaxPercent(rawRate) {
 export function useHarburger() {
   const [account, setAccount] = useState(null);
   const [contract, setContract] = useState(null);
+  const [vaultContract, setVaultContract] = useState(null);
+  const [strategies, setStrategies] = useState([]); // approved yield strategies
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -105,15 +107,43 @@ export function useHarburger() {
     }
     try {
       setLoading(true);
-      const provider = new ethers.BrowserProvider(window.ethereum);
+      let provider = new ethers.BrowserProvider(window.ethereum);
       await provider.send('eth_requestAccounts', []);
 
       if (EXPECTED_CHAIN_ID) {
         const network = await provider.getNetwork();
         if (Number(network.chainId) !== EXPECTED_CHAIN_ID) {
-          handleError(`Wrong network. Expected chain ID ${EXPECTED_CHAIN_ID}, got ${network.chainId}.`);
-          setLoading(false);
-          return;
+          const hexChainId = '0x' + EXPECTED_CHAIN_ID.toString(16);
+          try {
+            await window.ethereum.request({
+              method: 'wallet_switchEthereumChain',
+              params: [{ chainId: hexChainId }],
+            });
+          } catch (switchError) {
+            if (switchError.code === 4902) {
+              const chainConfig = {
+                11155111: { chainName: 'Sepolia', rpcUrls: ['https://ethereum-sepolia-rpc.publicnode.com'], blockExplorerUrls: ['https://sepolia.etherscan.io'], nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 } },
+                42161: { chainName: 'Arbitrum One', rpcUrls: ['https://arb1.arbitrum.io/rpc'], blockExplorerUrls: ['https://arbiscan.io'], nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 } },
+                421614: { chainName: 'Arbitrum Sepolia', rpcUrls: ['https://sepolia-rollup.arbitrum.io/rpc'], blockExplorerUrls: ['https://sepolia.arbiscan.io'], nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 } },
+              }[EXPECTED_CHAIN_ID];
+              if (chainConfig) {
+                await window.ethereum.request({
+                  method: 'wallet_addEthereumChain',
+                  params: [{ chainId: hexChainId, ...chainConfig }],
+                });
+              } else {
+                handleError(`Please switch to chain ID ${EXPECTED_CHAIN_ID} in your wallet.`);
+                setLoading(false);
+                return;
+              }
+            } else {
+              handleError(`Failed to switch network: ${switchError.message}`);
+              setLoading(false);
+              return;
+            }
+          }
+          // Re-create provider after chain switch
+          provider = new ethers.BrowserProvider(window.ethereum);
         }
       }
 
@@ -122,6 +152,17 @@ export function useHarburger() {
       const inst = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
       setAccount(address);
       setContract(inst);
+
+      // Set up vault contract if configured
+      try {
+        const vaultAddr = await inst.taxVault();
+        if (vaultAddr && vaultAddr !== ethers.ZeroAddress) {
+          const vInst = new ethers.Contract(vaultAddr, TAX_VAULT_ABI, signer);
+          setVaultContract(vInst);
+          const strats = await vInst.getApprovedStrategies();
+          setStrategies(strats);
+        }
+      } catch (e) { console.error('Vault setup error:', e); }
     } catch (err) {
       handleError('Failed to connect wallet: ' + err.message);
     } finally {
@@ -184,6 +225,8 @@ export function useHarburger() {
     } catch (err) { console.error('Error loading contract data:', err); }
   }, [contract]);
 
+  const [vaultBreakdown, setVaultBreakdown] = useState([]);
+
   const loadAccountData = useCallback(async () => {
     if (!account || !contract) return;
     try {
@@ -199,8 +242,20 @@ export function useHarburger() {
         totalTaxesPaid: info.totalTaxesPaid.toString(),
         taxesOwed: taxesOwed.toString(), usesVault: info.usesVault
       });
+
+      // Load vault balance breakdown if vault is active
+      if (info.usesVault && vaultContract) {
+        try {
+          const [strats, bals] = await vaultContract.getBalanceBreakdown(account);
+          const breakdown = strats.map((s, i) => ({
+            address: s,
+            balance: bals[i].toString()
+          })).filter(e => e.balance !== '0');
+          setVaultBreakdown(breakdown);
+        } catch (e) { console.error('Error loading vault breakdown:', e); }
+      }
     } catch (err) { console.error('Error loading account data:', err); }
-  }, [account, contract]);
+  }, [account, contract, vaultContract]);
 
   useEffect(() => {
     if (account && contract) {
@@ -235,19 +290,67 @@ export function useHarburger() {
 
   // ---- Actions ----
 
-  const handleDeposit = useCallback((amount) =>
+  // destination: 'internal' | strategy address (ethers.ZeroAddress for vault idle)
+  const handleDeposit = useCallback((amount, destination = 'internal') =>
     exec(async () => {
-      const tx = await contract.deposit({ value: ethers.parseEther(amount) });
-      await tx.wait();
+      const wei = ethers.parseEther(amount);
+      if (destination !== 'internal' && vaultContract) {
+        const tx = await vaultContract.deposit(destination, { value: wei });
+        await tx.wait();
+      } else {
+        const tx = await contract.deposit({ value: wei });
+        await tx.wait();
+      }
     }, 'Deposit successful')
-  , [contract, exec]);
+  , [contract, vaultContract, exec]);
 
-  const handleWithdraw = useCallback((amount) =>
+  // source: 'internal' | strategy address
+  const handleWithdraw = useCallback((amount, source = 'internal') =>
     exec(async () => {
-      const tx = await contract.withdraw(ethers.parseEther(amount));
-      await tx.wait();
+      const wei = ethers.parseEther(amount);
+      if (source !== 'internal' && vaultContract) {
+        const tx = await vaultContract.withdraw(source, wei);
+        await tx.wait();
+      } else {
+        const tx = await contract.withdraw(wei);
+        await tx.wait();
+      }
     }, 'Withdrawal successful')
-  , [contract, exec]);
+  , [contract, vaultContract, exec]);
+
+  // Move between vault strategies (single tx)
+  const handleMoveStrategy = useCallback((amount, from, to) =>
+    exec(async () => {
+      const wei = ethers.parseEther(amount);
+      const tx = await vaultContract.moveStrategy(from, to, wei);
+      await tx.wait();
+    }, 'Funds moved')
+  , [vaultContract, exec]);
+
+  // Move between internal balance and vault (two txs batched)
+  const handleMoveToVault = useCallback((amount, strategy) =>
+    exec(async () => {
+      const wei = ethers.parseEther(amount);
+      // Withdraw from Harburger internal
+      const tx1 = await contract.withdraw(wei);
+      await tx1.wait();
+      // Deposit to vault strategy
+      const tx2 = await vaultContract.deposit(strategy, { value: wei });
+      await tx2.wait();
+    }, 'Moved to vault')
+  , [contract, vaultContract, exec]);
+
+  const handleMoveFromVault = useCallback((amount, strategy) =>
+    exec(async () => {
+      const wei = ethers.parseEther(amount);
+      // Withdraw from vault (ETH returned to user wallet)
+      const tx1 = await vaultContract.withdraw(strategy, wei);
+      await tx1.wait();
+      // Deposit to Harburger internal
+      const tx2 = await contract.deposit({ value: wei });
+      await tx2.wait();
+    }, 'Moved to internal balance')
+  , [contract, vaultContract, exec]);
 
   const handleSetPrice = useCallback((price) =>
     exec(async () => {
@@ -318,10 +421,13 @@ export function useHarburger() {
     account, loading, error, setError, success,
     contractData, accountData, earmark,
     isOwner, isEarmarkReceiver, vaultBalance,
+    vaultEnabled: accountData.usesVault && !!vaultContract,
+    strategies, vaultBreakdown,
     connectWallet,
     handleDeposit, handleWithdraw, handleSetPrice, handleBuyNFT,
     handleEarmark, handleClaimEarmark, handleCancelEarmark,
     handleEnableVault, handleDisableVault,
+    handleMoveStrategy, handleMoveToVault, handleMoveFromVault,
     formatAddress, formatEther, annualTaxPercent
   };
 }
