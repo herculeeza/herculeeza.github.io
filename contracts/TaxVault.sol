@@ -2,14 +2,19 @@
 pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
 import "./IYieldStrategy.sol";
 import "./ITaxVault.sol";
+
+interface IHarburger {
+    function settleTaxes(address account) external;
+}
 
 /// @title TaxVault
 /// @notice Manages deposits for Harberger tax payments with multi-strategy yield allocation
 /// @dev Users split funds across approved yield strategies or keep an idle (non-yielding) balance.
 ///      The Harburger contract calls `payTax` to automatically drain funds for tax payments.
-contract TaxVault is ITaxVault, ReentrancyGuard {
+contract TaxVault is ITaxVault, ReentrancyGuard, Pausable {
 
     // ============ Custom Errors ============
 
@@ -23,17 +28,19 @@ contract TaxVault is ITaxVault, ReentrancyGuard {
     error InsufficientBalance();
     error StrategyShortfall();
     error NoDeposits();
-    error NotInEmergencyMode();
     error OnlyManager();
     error OnlyHarburger();
     error ETHTransferFailed();
     error StrategyNotDrained();
+    error DepositsRemaining();
     error UnauthorizedETHSender();
+    error TooManyRemovedStrategies();
 
     // ============ Constants ============
 
     address public constant IDLE_STRATEGY = address(0);
     uint256 public constant MAX_STRATEGIES = 10;
+    uint256 public constant MAX_REMOVED_STRATEGIES = 20;
     uint256 private constant RECOVERY_PRECISION = 1e18;
 
     // ============ State Variables ============
@@ -45,7 +52,6 @@ contract TaxVault is ITaxVault, ReentrancyGuard {
     mapping(address => bool) public isApprovedStrategy;
 
     address[] public removedStrategies;
-    bool public emergencyMode;
 
     /// @notice user => strategy => deposit amount (Wei)
     mapping(address => mapping(address => uint256)) public userDeposits;
@@ -69,8 +75,6 @@ contract TaxVault is ITaxVault, ReentrancyGuard {
     event StrategyRemoved(address indexed strategy);
     event FundsMoved(address indexed user, address indexed from, address indexed to, uint256 amount);
     event TaxPaymentProcessed(address indexed user, uint256 amount);
-    event EmergencyModeActivated();
-    event EmergencyModeDeactivated();
     event EmergencyWithdrawal(address indexed strategy, uint256 amount);
     event YieldHarvested(address indexed user, address indexed strategy, uint256 yieldAmount);
     event ManagerUpdated(address indexed oldManager, address indexed newManager);
@@ -99,7 +103,7 @@ contract TaxVault is ITaxVault, ReentrancyGuard {
     // ============ Core User Functions ============
 
     /// @notice Deposit ETH into a chosen strategy (or IDLE_STRATEGY for no yield)
-    function deposit(address strategy) external payable nonReentrant {
+    function deposit(address strategy) external payable nonReentrant whenNotPaused {
         if (msg.value == 0) revert ZeroAmount();
         if (!isApprovedStrategy[strategy]) revert StrategyNotApproved();
 
@@ -114,8 +118,11 @@ contract TaxVault is ITaxVault, ReentrancyGuard {
     }
 
     /// @notice Withdraw from a specific strategy
-    function withdraw(address strategy, uint256 amount) external nonReentrant {
+    function withdraw(address strategy, uint256 amount) external nonReentrant whenNotPaused {
         if (amount == 0) revert ZeroAmount();
+
+        // Settle pending taxes before any funds leave the vault
+        _settleTaxes(msg.sender);
 
         uint256 balance = getBalanceInStrategy(msg.sender, strategy);
         if (balance < amount) revert InsufficientBalance();
@@ -140,7 +147,7 @@ contract TaxVault is ITaxVault, ReentrancyGuard {
     }
 
     /// @notice Move funds between strategies without withdrawing to wallet
-    function moveStrategy(address from, address to, uint256 amount) external nonReentrant {
+    function moveStrategy(address from, address to, uint256 amount) external nonReentrant whenNotPaused {
         if (from == to) revert SameStrategy();
         if (!isApprovedStrategy[to]) revert StrategyNotApproved();
         if (amount == 0) revert ZeroAmount();
@@ -172,7 +179,7 @@ contract TaxVault is ITaxVault, ReentrancyGuard {
     /// @notice Migrate deposits from a drained strategy into idle.
     ///         Users call this after emergencyWithdrawFromStrategy to reclaim their
     ///         proportional share at the idle level.
-    function migrateFromDrainedStrategy(address strategy) external nonReentrant {
+    function migrateFromDrainedStrategy(address strategy) external nonReentrant whenNotPaused {
         if (!_isDrained(strategy)) revert StrategyNotDrained();
 
         uint256 deposited = userDeposits[msg.sender][strategy];
@@ -193,12 +200,9 @@ contract TaxVault is ITaxVault, ReentrancyGuard {
     function payTax(address user, uint256 amount)
         external
         onlyHarburger
-        nonReentrant
-        returns (bool)
+        returns (uint256)
     {
         // Compute drainable balance (idle + approved + removed strategies).
-        // Removed strategies still hold user funds and must be included so that
-        // getTotalBalance() and payTax() agree on the user's effective balance.
         uint256 drainable = userDeposits[user][IDLE_STRATEGY];
         for (uint256 i = 0; i < approvedStrategies.length; i++) {
             drainable += getBalanceInStrategy(user, approvedStrategies[i]);
@@ -207,7 +211,11 @@ contract TaxVault is ITaxVault, ReentrancyGuard {
             drainable += getBalanceInStrategy(user, removedStrategies[i]);
         }
 
-        if (drainable < amount) return false;
+        if (drainable < amount) {
+            // Partial payment: drain what we can
+            if (drainable == 0) return 0;
+            amount = drainable;
+        }
 
         uint256 remaining = amount;
 
@@ -230,13 +238,14 @@ contract TaxVault is ITaxVault, ReentrancyGuard {
             remaining = _drainStrategies(user, remaining, removedStrategies);
         }
 
-        assert(remaining == 0);
+        uint256 paid = amount - remaining;
+        if (paid == 0) return 0;
 
-        (bool ok, ) = payable(harburger).call{value: amount}("");
+        (bool ok, ) = payable(harburger).call{value: paid}("");
         if (!ok) revert ETHTransferFailed();
 
-        emit TaxPaymentProcessed(user, amount);
-        return true;
+        emit TaxPaymentProcessed(user, paid);
+        return paid;
     }
 
     // ============ Manager Functions ============
@@ -253,18 +262,31 @@ contract TaxVault is ITaxVault, ReentrancyGuard {
         // Clean from removed list if re-adding (prevents double-counting)
         _removeFromArray(removedStrategies, strategy);
 
+        // Clear stale recovery rate if this strategy was previously drained
+        if (recoveryRate[strategy] > 0) {
+            delete recoveryRate[strategy];
+        }
+
         emit StrategyAdded(strategy);
     }
 
     function removeStrategy(address strategy) external onlyManager {
         if (!isApprovedStrategy[strategy]) revert StrategyNotApproved();
         if (strategy == IDLE_STRATEGY) revert CannotRemoveIdle();
+        if (removedStrategies.length >= MAX_REMOVED_STRATEGIES) revert TooManyRemovedStrategies();
 
         isApprovedStrategy[strategy] = false;
         _removeFromArray(approvedStrategies, strategy);
         removedStrategies.push(strategy);
 
         emit StrategyRemoved(strategy);
+    }
+
+    /// @notice Manager can clean up a removed strategy once all users have migrated
+    function cleanRemovedStrategy(address strategy) external onlyManager {
+        // Only allow cleanup if no deposits remain
+        if (totalDepositsPerStrategy[strategy] > 0) revert DepositsRemaining();
+        _removeFromArray(removedStrategies, strategy);
     }
 
     function emergencyWithdrawFromStrategy(address strategy) external onlyManager nonReentrant {
@@ -284,16 +306,6 @@ contract TaxVault is ITaxVault, ReentrancyGuard {
         emit EmergencyWithdrawal(strategy, recovered);
     }
 
-    function activateEmergencyMode() external onlyManager {
-        emergencyMode = true;
-        emit EmergencyModeActivated();
-    }
-
-    function deactivateEmergencyMode() external onlyManager {
-        emergencyMode = false;
-        emit EmergencyModeDeactivated();
-    }
-
     function updateManager(address newManager) external onlyManager {
         if (newManager == address(0)) revert ZeroAddress();
         address old = manager;
@@ -301,10 +313,20 @@ contract TaxVault is ITaxVault, ReentrancyGuard {
         emit ManagerUpdated(old, newManager);
     }
 
-    // ============ Emergency User Withdrawal ============
+    function pause() external onlyManager {
+        _pause();
+    }
 
-    function emergencyWithdrawUser() external nonReentrant {
-        if (!emergencyMode) revert NotInEmergencyMode();
+    function unpause() external onlyManager {
+        _unpause();
+    }
+
+    // ============ Batch Withdrawal ============
+
+    /// @notice Withdraw all deposits across every strategy in a single transaction
+    function batchWithdrawAll() external nonReentrant whenNotPaused {
+        // Settle pending taxes before any funds leave the vault
+        _settleTaxes(msg.sender);
 
         uint256 total = _collectAllPrincipal(msg.sender);
         if (total == 0) revert NoDeposits();
@@ -380,22 +402,45 @@ contract TaxVault is ITaxVault, ReentrancyGuard {
 
     // ============ Internal Helpers ============
 
+    /// @dev Settle any pending taxes via Harburger before funds leave the vault.
+    ///      This ensures users can't withdraw funds they owe in taxes.
+    function _settleTaxes(address user) private {
+        IHarburger(harburger).settleTaxes(user);
+    }
+
     /// @dev Check if a strategy has been emergency-drained
     function _isDrained(address strategy) private view returns (bool) {
         return recoveryRate[strategy] > 0;
     }
 
-    /// @dev Update accounting when withdrawing `amount` from a strategy
+    /// @dev Update accounting when withdrawing `amount` from a strategy.
+    ///      Adjusts both user deposits and total deposits proportionally so that
+    ///      totalDepositsPerStrategy stays consistent with the actual strategy value.
     function _updateWithdrawAccounting(address user, address strategy, uint256 amount) private {
         uint256 deposited = userDeposits[user][strategy];
-        if (amount <= deposited) {
+        if (strategy == IDLE_STRATEGY || _isDrained(strategy)) {
+            // Idle and drained: 1:1 accounting
             userDeposits[user][strategy] -= amount;
             totalDepositsPerStrategy[strategy] = _safeSub(totalDepositsPerStrategy[strategy], amount);
         } else {
-            uint256 yield = amount - deposited;
-            userDeposits[user][strategy] = 0;
-            totalDepositsPerStrategy[strategy] = _safeSub(totalDepositsPerStrategy[strategy], deposited);
-            emit YieldHarvested(user, strategy, yield);
+            // For yield strategies, reduce deposit proportionally to maintain ratio consistency.
+            // amount is the user's share of the strategy value, deposited is their deposit tracking.
+            // Reduce deposit by the same proportion: depositReduction = deposited * amount / balance
+            uint256 balance = getBalanceInStrategy(user, strategy);
+            uint256 depositReduction;
+            if (amount >= balance) {
+                // Withdrawing entire balance
+                depositReduction = deposited;
+            } else {
+                depositReduction = (deposited * amount) / balance;
+                if (depositReduction == 0) depositReduction = 1; // avoid leaving dust
+            }
+            uint256 yield = amount > depositReduction ? amount - depositReduction : 0;
+            userDeposits[user][strategy] -= depositReduction;
+            totalDepositsPerStrategy[strategy] = _safeSub(totalDepositsPerStrategy[strategy], depositReduction);
+            if (yield > 0) {
+                emit YieldHarvested(user, strategy, yield);
+            }
         }
     }
 
@@ -482,9 +527,13 @@ contract TaxVault is ITaxVault, ReentrancyGuard {
             }
         }
 
-        // External calls after all state updates
+        // External calls after all state updates — check return values
         for (uint256 i = 0; i < idx; i++) {
-            IYieldStrategy(toWithdraw[i]).withdraw(amounts[i]);
+            uint256 withdrawn = IYieldStrategy(toWithdraw[i]).withdraw(amounts[i]);
+            if (withdrawn < amounts[i]) {
+                // Adjust collected to actual amount received
+                collected -= (amounts[i] - withdrawn);
+            }
         }
     }
 

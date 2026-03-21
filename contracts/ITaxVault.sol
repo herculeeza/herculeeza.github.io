@@ -7,8 +7,8 @@ interface ITaxVault {
     /// @notice Pay taxes on behalf of a user by withdrawing from their vault balance
     /// @param user The user whose vault balance to deduct from
     /// @param amount The tax amount in Wei
-    /// @return success Whether the payment was successful (false if insufficient balance)
-    function payTax(address user, uint256 amount) external returns (bool);
+    /// @return paid Actual amount paid (0 if no funds available, may be less than amount)
+    function payTax(address user, uint256 amount) external returns (uint256 paid);
 
     /// @notice Get a user's total balance across all strategies
     /// @param user The user to query
