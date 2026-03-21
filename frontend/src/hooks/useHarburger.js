@@ -171,8 +171,8 @@ export function useHarburger() {
                 "function aavePool() view returns (address)",
                 "function comet() view returns (address)",
               ], signer);
-              try { await s.aavePool(); names[addr] = 'Aave V3 WETH'; continue; } catch {}
-              try { await s.comet(); names[addr] = 'Compound V3 WETH'; continue; } catch {}
+              try { await s.aavePool(); names[addr] = 'Aave V3 WETH'; continue; } catch { /* not Aave */ }
+              try { await s.comet(); names[addr] = 'Compound V3 WETH'; continue; } catch { /* not Compound */ }
               names[addr] = `Strategy (${addr.slice(0, 6)}…${addr.slice(-4)})`;
             } catch {
               names[addr] = `Strategy (${addr.slice(0, 6)}…${addr.slice(-4)})`;
