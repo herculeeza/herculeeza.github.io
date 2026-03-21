@@ -76,3 +76,13 @@ input[type="number"] {
   50% { width: 85%; }
   100% { width: 5%; }
 }
+
+.burger-progress-vertical {
+  animation: grill-vertical 3s ease-in-out infinite;
+}
+
+@keyframes grill-vertical {
+  0% { height: 5%; }
+  50% { height: 85%; }
+  100% { height: 5%; }
+}
