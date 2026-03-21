@@ -278,6 +278,185 @@ describe("TaxVault", function () {
     });
   });
 
+  describe("Yield strategy integration", function () {
+    let mockStrategy;
+
+    beforeEach(async function () {
+      const Mock = await ethers.getContractFactory("MockYieldStrategy");
+      mockStrategy = await Mock.deploy(await taxVault.getAddress());
+      await mockStrategy.waitForDeployment();
+      await taxVault.connect(manager).addStrategy(await mockStrategy.getAddress());
+    });
+
+    it("Should deposit and withdraw through a yield strategy", async function () {
+      const stratAddr = await mockStrategy.getAddress();
+      const amount = ethers.parseEther("2.0");
+
+      await taxVault.connect(user1).deposit(stratAddr, { value: amount });
+      expect(await taxVault.getBalanceInStrategy(user1.address, stratAddr)).to.equal(amount);
+      expect(await taxVault.getTotalBalance(user1.address)).to.equal(amount);
+
+      const walletBefore = await ethers.provider.getBalance(user1.address);
+      const tx = await taxVault.connect(user1).withdraw(stratAddr, amount);
+      const receipt = await tx.wait();
+      const gas = receipt.gasUsed * receipt.gasPrice;
+
+      const walletAfter = await ethers.provider.getBalance(user1.address);
+      expect(walletAfter).to.be.closeTo(walletBefore + amount - gas, ethers.parseEther("0.001"));
+      expect(await taxVault.getBalanceInStrategy(user1.address, stratAddr)).to.equal(0n);
+    });
+
+    it("Should move funds between idle and yield strategy", async function () {
+      const stratAddr = await mockStrategy.getAddress();
+      const amount = ethers.parseEther("3.0");
+
+      // Deposit idle
+      await taxVault.connect(user1).deposit(ethers.ZeroAddress, { value: amount });
+
+      // Move idle -> strategy
+      await taxVault.connect(user1).moveStrategy(ethers.ZeroAddress, stratAddr, amount);
+
+      expect(await taxVault.getBalanceInStrategy(user1.address, ethers.ZeroAddress)).to.equal(0n);
+      expect(await taxVault.getBalanceInStrategy(user1.address, stratAddr)).to.equal(amount);
+      expect(await taxVault.getTotalBalance(user1.address)).to.equal(amount);
+
+      // Move strategy -> idle
+      await taxVault.connect(user1).moveStrategy(stratAddr, ethers.ZeroAddress, amount);
+
+      expect(await taxVault.getBalanceInStrategy(user1.address, ethers.ZeroAddress)).to.equal(amount);
+      expect(await taxVault.getBalanceInStrategy(user1.address, stratAddr)).to.equal(0n);
+    });
+
+    it("Should revert moveStrategy to same destination", async function () {
+      await taxVault.connect(user1).deposit(ethers.ZeroAddress, { value: ethers.parseEther("1.0") });
+
+      await expect(
+        taxVault.connect(user1).moveStrategy(ethers.ZeroAddress, ethers.ZeroAddress, ethers.parseEther("1.0"))
+      ).to.be.revertedWithCustomError(taxVault, "SameStrategy");
+    });
+
+    it("Should drain strategy via payTax", async function () {
+      const stratAddr = await mockStrategy.getAddress();
+      const deposit = ethers.parseEther("5.0");
+
+      // User deposits to strategy only (no idle)
+      await taxVault.connect(user1).deposit(stratAddr, { value: deposit });
+
+      const harburgerAddr = await harburger.getAddress();
+      await ethers.provider.send("hardhat_setBalance", [harburgerAddr, "0x56BC75E2D63100000"]);
+      const harburgerSigner = await ethers.getImpersonatedSigner(harburgerAddr);
+
+      const taxAmount = ethers.parseEther("2.0");
+      const tx = await taxVault.connect(harburgerSigner).payTax(user1.address, taxAmount);
+      await tx.wait();
+
+      const remaining = await taxVault.getTotalBalance(user1.address);
+      expect(remaining).to.be.closeTo(deposit - taxAmount, ethers.parseEther("0.001"));
+    });
+
+    it("Should batch withdraw from both idle and strategy", async function () {
+      const stratAddr = await mockStrategy.getAddress();
+
+      await taxVault.connect(user1).deposit(ethers.ZeroAddress, { value: ethers.parseEther("1.0") });
+      await taxVault.connect(user1).deposit(stratAddr, { value: ethers.parseEther("2.0") });
+
+      expect(await taxVault.getTotalBalance(user1.address)).to.equal(ethers.parseEther("3.0"));
+
+      const walletBefore = await ethers.provider.getBalance(user1.address);
+      const tx = await taxVault.connect(user1).batchWithdrawAll();
+      const receipt = await tx.wait();
+      const gas = receipt.gasUsed * receipt.gasPrice;
+
+      const walletAfter = await ethers.provider.getBalance(user1.address);
+      expect(walletAfter).to.be.closeTo(
+        walletBefore + ethers.parseEther("3.0") - gas,
+        ethers.parseEther("0.01")
+      );
+      expect(await taxVault.getTotalBalance(user1.address)).to.equal(0n);
+    });
+  });
+
+  describe("Emergency drain and recovery", function () {
+    let mockStrategy;
+
+    beforeEach(async function () {
+      const Mock = await ethers.getContractFactory("MockYieldStrategy");
+      mockStrategy = await Mock.deploy(await taxVault.getAddress());
+      await mockStrategy.waitForDeployment();
+      await taxVault.connect(manager).addStrategy(await mockStrategy.getAddress());
+    });
+
+    it("Should emergency withdraw and set recovery rate", async function () {
+      const stratAddr = await mockStrategy.getAddress();
+
+      await taxVault.connect(user1).deposit(stratAddr, { value: ethers.parseEther("3.0") });
+      await taxVault.connect(user2).deposit(stratAddr, { value: ethers.parseEther("7.0") });
+
+      // Remove strategy first (standard admin flow)
+      await taxVault.connect(manager).removeStrategy(stratAddr);
+
+      // Emergency withdraw — full recovery (mock returns 100%)
+      await taxVault.connect(manager).emergencyWithdrawFromStrategy(stratAddr);
+
+      const rate = await taxVault.recoveryRate(stratAddr);
+      expect(rate).to.equal(10n ** 18n); // 1e18 = 100% recovery
+    });
+
+    it("Should allow users to migrate from drained strategy", async function () {
+      const stratAddr = await mockStrategy.getAddress();
+      const user1Deposit = ethers.parseEther("4.0");
+
+      await taxVault.connect(user1).deposit(stratAddr, { value: user1Deposit });
+
+      await taxVault.connect(manager).removeStrategy(stratAddr);
+      await taxVault.connect(manager).emergencyWithdrawFromStrategy(stratAddr);
+
+      // Before migration: balance shows via recovery rate
+      const balBefore = await taxVault.getBalanceInStrategy(user1.address, stratAddr);
+      expect(balBefore).to.equal(user1Deposit); // 100% recovery
+
+      // Migrate to idle
+      await taxVault.connect(user1).migrateFromDrainedStrategy(stratAddr);
+
+      // Strategy balance zeroed, idle balance increased
+      expect(await taxVault.getBalanceInStrategy(user1.address, stratAddr)).to.equal(0n);
+      expect(await taxVault.getBalanceInStrategy(user1.address, ethers.ZeroAddress)).to.equal(user1Deposit);
+
+      // Can withdraw the migrated funds
+      const walletBefore = await ethers.provider.getBalance(user1.address);
+      const tx = await taxVault.connect(user1).withdraw(ethers.ZeroAddress, user1Deposit);
+      const receipt = await tx.wait();
+      const gas = receipt.gasUsed * receipt.gasPrice;
+      const walletAfter = await ethers.provider.getBalance(user1.address);
+
+      expect(walletAfter).to.be.closeTo(walletBefore + user1Deposit - gas, ethers.parseEther("0.001"));
+    });
+
+    it("Should allow cleaning a fully-migrated removed strategy", async function () {
+      const stratAddr = await mockStrategy.getAddress();
+
+      await taxVault.connect(user1).deposit(stratAddr, { value: ethers.parseEther("1.0") });
+      await taxVault.connect(manager).removeStrategy(stratAddr);
+      await taxVault.connect(manager).emergencyWithdrawFromStrategy(stratAddr);
+      await taxVault.connect(user1).migrateFromDrainedStrategy(stratAddr);
+
+      // No deposits remain — manager can clean
+      await taxVault.connect(manager).cleanRemovedStrategy(stratAddr);
+    });
+
+    it("Should revert cleaning a strategy with remaining deposits", async function () {
+      const stratAddr = await mockStrategy.getAddress();
+
+      await taxVault.connect(user1).deposit(stratAddr, { value: ethers.parseEther("1.0") });
+      await taxVault.connect(manager).removeStrategy(stratAddr);
+
+      // Strategy not drained yet — still has deposits tracked
+      await expect(
+        taxVault.connect(manager).cleanRemovedStrategy(stratAddr)
+      ).to.be.revertedWithCustomError(taxVault, "DepositsRemaining");
+    });
+  });
+
   describe("View Functions", function () {
     it("Should return correct total balance", async function () {
       const depositAmount = ethers.parseEther("3.5");

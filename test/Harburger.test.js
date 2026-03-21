@@ -276,6 +276,170 @@ describe("Harburger", function () {
     });
   });
 
+  describe("Debt-triggered free buy", function () {
+    it("Should allow free acquisition when owner has debt", async function () {
+      // Owner has no deposit — taxes will push them into debt
+      await ethers.provider.send("evm_increaseTime", [86400]); // 1 day
+      await ethers.provider.send("evm_mine");
+
+      // Trigger tax settlement so debt accrues
+      await harburger.settleTaxes(owner.address);
+
+      const [, ownerDebt] = await harburger.getAccountBalance(owner.address);
+      expect(ownerDebt).to.be.gt(0n);
+
+      // Buyer needs no balance — NFT is free when owner is in debt
+      await harburger.connect(buyer).buyNFT(ethers.parseEther("0.05"));
+
+      expect(await harburger.currentOwner()).to.equal(buyer.address);
+      // Owner's debt should be forgiven
+      const [, debtAfter] = await harburger.getAccountBalance(owner.address);
+      expect(debtAfter).to.equal(0n);
+    });
+
+    it("Should reject free buy if buyer also has debt", async function () {
+      // Step 1: buyer becomes owner, sets high price, drains balance into debt
+      await harburger.connect(owner).deposit({ value: ethers.parseEther("1.0") });
+      await harburger.connect(buyer).deposit({ value: ethers.parseEther("0.5") });
+      await harburger.connect(buyer).buyNFT(ethers.parseEther("100"));
+
+      await ethers.provider.send("evm_increaseTime", [60 * 86400]);
+      await ethers.provider.send("evm_mine");
+
+      // Step 2: transfer via earmark (does NOT forgive buyer's debt, unlike buyNFT)
+      await harburger.connect(buyer).earmarkNFT(addr3.address, 0);
+      await harburger.connect(addr3).claimEarmark(ethers.parseEther("100"));
+
+      const [, buyerDebt] = await harburger.getAccountBalance(buyer.address);
+      expect(buyerDebt).to.be.gt(0n);
+
+      // Step 3: addr3 accrues debt too (no balance, high price)
+      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_mine");
+      await harburger.settleTaxes(addr3.address);
+      const [, addr3Debt] = await harburger.getAccountBalance(addr3.address);
+      expect(addr3Debt).to.be.gt(0n);
+
+      // buyer tries to buy — addr3 has debt (free buy), but buyer also has debt
+      await expect(
+        harburger.connect(buyer).buyNFT(ethers.parseEther("0.05"))
+      ).to.be.revertedWithCustomError(harburger, "BuyerHasDebt");
+    });
+  });
+
+  describe("Vault-integrated tax payment", function () {
+    let taxVault;
+
+    beforeEach(async function () {
+      const TaxVault = await ethers.getContractFactory("TaxVault");
+      taxVault = await TaxVault.deploy(await harburger.getAddress(), owner.address);
+      await taxVault.waitForDeployment();
+      await harburger.updateTaxVault(await taxVault.getAddress());
+
+      // Enable vault for owner and deposit into it
+      await harburger.connect(owner).enableVault();
+      await taxVault.connect(owner).deposit(ethers.ZeroAddress, { value: ethers.parseEther("1.0") });
+    });
+
+    it("Should pay taxes from vault when enabled", async function () {
+      const vaultBefore = await taxVault.getTotalBalance(owner.address);
+
+      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_mine");
+
+      // Trigger settlement
+      await harburger.connect(owner).setPrice(INITIAL_PRICE);
+
+      const vaultAfter = await taxVault.getTotalBalance(owner.address);
+      expect(vaultAfter).to.be.lt(vaultBefore);
+
+      // Tax receiver should have received funds
+      const [receiverBal] = await harburger.getAccountBalance(taxReceiver.address);
+      expect(receiverBal).to.be.gt(0n);
+    });
+
+    it("Should fall back to internal balance when vault is insufficient", async function () {
+      // Deposit a large internal balance too
+      await harburger.connect(owner).deposit({ value: ethers.parseEther("5.0") });
+
+      // Set a very high price so one day of taxes exceeds vault balance (1 ETH)
+      // 10% annual on 100_000 ETH => 10_000 ETH/yr => ~27.4 ETH/day
+      await harburger.connect(owner).setPrice(ethers.parseEther("100000"));
+
+      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_mine");
+
+      // Trigger settlement — vault (1 ETH) won't cover it, internal (5 ETH) picks up the rest
+      await harburger.connect(owner).setPrice(ethers.parseEther("100000"));
+
+      const vaultAfter = await taxVault.getTotalBalance(owner.address);
+      expect(vaultAfter).to.equal(0n); // vault fully drained
+
+      // Internal balance should also have been reduced
+      const acc = await harburger.accounts(owner.address);
+      expect(acc.balance).to.be.lt(ethers.parseEther("5.0"));
+    });
+  });
+
+  describe("Admin: updateTaxReceiver", function () {
+    it("Should migrate accumulated balance to new receiver", async function () {
+      await harburger.connect(owner).deposit({ value: ethers.parseEther("1.0") });
+
+      // Accrue and settle some taxes
+      await ethers.provider.send("evm_increaseTime", [86400]);
+      await ethers.provider.send("evm_mine");
+      await harburger.connect(owner).setPrice(INITIAL_PRICE);
+
+      const [oldReceiverBal] = await harburger.getAccountBalance(taxReceiver.address);
+      expect(oldReceiverBal).to.be.gt(0n);
+
+      // Update tax receiver to addr3
+      await harburger.updateTaxReceiver(addr3.address);
+
+      // Old receiver balance should be zero, new receiver inherits it
+      const [oldAfter] = await harburger.getAccountBalance(taxReceiver.address);
+      expect(oldAfter).to.equal(0n);
+
+      const [newReceiverBal] = await harburger.getAccountBalance(addr3.address);
+      expect(newReceiverBal).to.be.gte(oldReceiverBal);
+    });
+  });
+
+  describe("Pause / Unpause", function () {
+    it("Should freeze user-facing functions when paused", async function () {
+      await harburger.pause();
+
+      await expect(
+        harburger.connect(buyer).deposit({ value: ethers.parseEther("1.0") })
+      ).to.be.revertedWith("Pausable: paused");
+
+      await expect(
+        harburger.connect(owner).setPrice(ethers.parseEther("0.5"))
+      ).to.be.revertedWith("Pausable: paused");
+
+      await expect(
+        harburger.connect(buyer).buyNFT(ethers.parseEther("0.2"))
+      ).to.be.revertedWith("Pausable: paused");
+    });
+
+    it("Should not accrue taxes during paused period", async function () {
+      await harburger.connect(owner).deposit({ value: ethers.parseEther("1.0") });
+
+      await harburger.pause();
+      const [balAtPause] = await harburger.getAccountBalance(owner.address);
+
+      // Advance time while paused
+      await ethers.provider.send("evm_increaseTime", [86400 * 30]); // 30 days
+      await ethers.provider.send("evm_mine");
+
+      await harburger.unpause();
+
+      // Balance should be unchanged — no taxes during pause
+      const [balAfterUnpause] = await harburger.getAccountBalance(owner.address);
+      expect(balAfterUnpause).to.be.closeTo(balAtPause, ethers.parseEther("0.0001"));
+    });
+  });
+
   describe("Transfer Restrictions", function () {
     it("Should prevent direct transferFrom", async function () {
       await expect(
