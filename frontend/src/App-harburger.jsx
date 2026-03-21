@@ -206,122 +206,119 @@ const App = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Harburger + Account */}
-            <div className="bg-white rounded-lg shadow-lg p-6 lg:col-span-2">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div>
-                  <h2 className="text-xl font-bold mb-3 flex items-center gap-2">
-                    <Tag size={20} className="text-orange-500" />
-                    Harburger
-                  </h2>
-                  <div className="bg-orange-50 rounded-lg p-4 mb-3">
-                    <div className="text-sm text-orange-700">Current Price</div>
-                    <div className="flex items-center gap-2">
-                      <div className="font-bold text-2xl text-orange-600 font-mono">
-                        {formatEther(contractData.currentPrice)} ETH
-                      </div>
-                      {isOwner && !editingPrice && (
-                        <button
-                          onClick={() => setEditingPrice(true)}
-                          className="text-orange-400 hover:text-orange-600 transition-colors"
-                          title="Change price"
-                        >
-                          <Pencil size={16} />
-                        </button>
-                      )}
-                    </div>
-                    {isOwner && editingPrice && (
-                      <div className="flex gap-2 mt-2">
-                        <input
-                          type="number" min="0"
-                          value={newPrice}
-                          onChange={(e) => setNewPrice(e.target.value)}
-                          placeholder="New price in ETH"
-                          step="0.001"
-                          className="flex-1 min-w-0 px-3 py-1.5 text-sm border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                          autoFocus
-                        />
-                        <button
-                          onClick={async () => { if (await handleSetPrice(newPrice)) { setNewPrice(''); setEditingPrice(false); } }}
-                          disabled={loading || !newPrice || parseFloat(newPrice) <= 0}
-                          className="bg-orange-500 text-white p-1.5 rounded-lg hover:bg-orange-600 disabled:bg-gray-400"
-                        >
-                          <Check size={16} />
-                        </button>
-                        <button
-                          onClick={() => { setNewPrice(''); setEditingPrice(false); }}
-                          className="text-gray-400 hover:text-gray-600 p-1.5"
-                        >
-                          <X size={16} />
-                        </button>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-1 mt-2 text-xs text-gray-500">
-                      <span>Owner:</span>
-                      <ExplorerLink address={contractData.currentOwner}>
-                        <span className="font-mono font-medium text-gray-700">{formatAddress(contractData.currentOwner)}</span>
-                      </ExplorerLink>
-                      {isOwner && <span className="text-green-600 font-semibold">← You!</span>}
-                    </div>
+            {/* Harburger */}
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                <Tag size={20} className="text-orange-500" />
+                Harburger
+              </h2>
+              <div className="bg-orange-50 rounded-lg p-4 mb-4">
+                <div className="text-sm text-orange-700">Current Price</div>
+                <div className="flex items-center gap-2">
+                  <div className="font-bold text-2xl text-orange-600 font-mono">
+                    {formatEther(contractData.currentPrice)} ETH
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-gray-50 rounded-lg p-3">
-                      <div className="text-xs text-gray-500">Tax Rate</div>
-                      <div className="font-bold font-mono mt-0.5">{annualTaxPercent(contractData.taxRate)}%<span className="text-xs font-normal text-gray-400"> /yr</span></div>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-3">
-                      <div className="text-xs text-gray-500">Tax Receiver</div>
-                      <div className="mt-0.5">
-                        <ExplorerLink address={contractData.taxReceiver}>
-                          <span className="font-mono text-sm font-medium">{formatAddress(contractData.taxReceiver)}</span>
-                        </ExplorerLink>
-                      </div>
-                    </div>
+                  {isOwner && !editingPrice && (
+                    <button
+                      onClick={() => setEditingPrice(true)}
+                      className="text-orange-400 hover:text-orange-600 transition-colors"
+                      title="Change price"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                  )}
+                </div>
+                {isOwner && editingPrice && (
+                  <div className="flex gap-2 mt-2">
+                    <input
+                      type="number" min="0"
+                      value={newPrice}
+                      onChange={(e) => setNewPrice(e.target.value)}
+                      placeholder="New price in ETH"
+                      step="0.001"
+                      className="flex-1 min-w-0 px-3 py-1.5 text-sm border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                      autoFocus
+                    />
+                    <button
+                      onClick={async () => { if (await handleSetPrice(newPrice)) { setNewPrice(''); setEditingPrice(false); } }}
+                      disabled={loading || !newPrice || parseFloat(newPrice) <= 0}
+                      className="bg-orange-500 text-white p-1.5 rounded-lg hover:bg-orange-600 disabled:bg-gray-400"
+                    >
+                      <Check size={16} />
+                    </button>
+                    <button
+                      onClick={() => { setNewPrice(''); setEditingPrice(false); }}
+                      className="text-gray-400 hover:text-gray-600 p-1.5"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+                <div className="flex items-center gap-1 mt-2 text-xs text-gray-500">
+                  <span>Owner:</span>
+                  <ExplorerLink address={contractData.currentOwner}>
+                    <span className="font-mono font-medium text-gray-700">{formatAddress(contractData.currentOwner)}</span>
+                  </ExplorerLink>
+                  {isOwner && <span className="text-green-600 font-semibold">← You!</span>}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <div className="text-xs text-gray-500">Tax Rate</div>
+                  <div className="font-bold font-mono mt-0.5">{annualTaxPercent(contractData.taxRate)}%<span className="text-xs font-normal text-gray-400"> /yr</span></div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <div className="text-xs text-gray-500">Tax Receiver</div>
+                  <div className="mt-0.5">
+                    <ExplorerLink address={contractData.taxReceiver}>
+                      <span className="font-mono text-sm font-medium">{formatAddress(contractData.taxReceiver)}</span>
+                    </ExplorerLink>
                   </div>
                 </div>
+              </div>
+            </div>
 
-                <div>
-                  <h2 className="text-xl font-bold mb-3 flex items-center gap-2">
-                    <DollarSign size={20} className="text-green-500" />
-                    Your Account
-                  </h2>
-                  <div className="bg-green-50 rounded-lg p-4 mb-3">
-                    <div className="text-sm text-green-700">Balance</div>
-                    <div className="font-bold text-2xl text-green-600 font-mono">
-                      {formatEther(accountData.netBalance)} ETH
-                    </div>
-                    {accountData.usesVault && (
-                      <div className="flex gap-4 mt-2 text-xs text-gray-500">
-                        <span>Internal: <span className="font-mono font-medium text-gray-700">{formatEther(accountData.rawBalance)}</span></span>
-                        <span>Vault: <span className="font-mono font-medium text-purple-600">{formatEther(vaultBalance)}</span></span>
-                      </div>
-                    )}
+            {/* Your Account */}
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                <DollarSign size={20} className="text-green-500" />
+                Your Account
+              </h2>
+              <div className="bg-green-50 rounded-lg p-4 mb-4">
+                <div className="text-sm text-green-700">Balance</div>
+                <div className="font-bold text-2xl text-green-600 font-mono">
+                  {formatEther(accountData.netBalance)} ETH
+                </div>
+                {accountData.usesVault && (
+                  <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                    <span>Internal: <span className="font-mono font-medium text-gray-700">{formatEther(accountData.rawBalance)}</span></span>
+                    <span>Vault: <span className="font-mono font-medium text-purple-600">{formatEther(vaultBalance)}</span></span>
                   </div>
-                  {accountData.debt !== '0' && (
-                    <div className="bg-red-50 rounded-lg p-3 mb-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-red-700">Outstanding Debt</span>
-                        <span className="font-bold text-red-600 font-mono">{formatEther(accountData.debt)} ETH</span>
-                      </div>
-                    </div>
-                  )}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-gray-50 rounded-lg p-3">
-                      <div className="text-xs text-gray-500">Taxes Paid</div>
-                      <div className="font-bold font-mono mt-0.5">
-                        {formatEther((BigInt(accountData.totalTaxesPaid || '0') + BigInt(accountData.taxesOwed || '0')).toString())} ETH
-                      </div>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-3">
-                      <div className="text-xs text-gray-500">Vault</div>
-                      <div className="mt-0.5">
-                        {accountData.usesVault ? (
-                          <span className="text-sm font-semibold text-purple-600">Enabled</span>
-                        ) : (
-                          <span className="text-sm font-semibold text-gray-400">Disabled</span>
-                        )}
-                      </div>
-                    </div>
+                )}
+              </div>
+              {accountData.debt !== '0' && (
+                <div className="bg-red-50 rounded-lg p-3 mb-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-red-700">Outstanding Debt</span>
+                    <span className="font-bold text-red-600 font-mono">{formatEther(accountData.debt)} ETH</span>
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <div className="text-xs text-gray-500">Taxes Paid</div>
+                  <div className="font-bold font-mono mt-0.5">
+                    {formatEther((BigInt(accountData.totalTaxesPaid || '0') + BigInt(accountData.taxesOwed || '0')).toString())} ETH
+                  </div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <div className="text-xs text-gray-500">Vault</div>
+                  <div className="mt-0.5">
+                    {accountData.usesVault ? (
+                      <span className="text-sm font-semibold text-purple-600">Enabled</span>
+                    ) : (
+                      <span className="text-sm font-semibold text-gray-400">Disabled</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -527,6 +524,34 @@ const App = () => {
               )}
             </div>
 
+            {/* Top Taxpayers */}
+            {topTaxpayers.length > 0 && (
+              <div className="bg-white rounded-lg shadow-lg p-6">
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                  <TrendingUp size={20} className="text-orange-500" />
+                  Patty Daddies
+                </h2>
+                <div className="space-y-2">
+                  {topTaxpayers.map((entry, i) => (
+                    <div key={entry.address} className="flex items-center gap-3">
+                      <div className="w-7 text-center font-bold text-sm shrink-0">
+                        {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-gray-400">{i + 1}</span>}
+                      </div>
+                      <div className="flex-1 min-w-0 flex items-center justify-between gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <ExplorerLink address={entry.address}>
+                            <span className="font-mono text-sm">{formatAddress(entry.address)}</span>
+                          </ExplorerLink>
+                          {entry.address === account && <span className="text-xs text-green-600 font-semibold shrink-0">You</span>}
+                        </div>
+                        <span className="font-mono font-bold text-sm text-orange-600 shrink-0">{formatEther(entry.total)} ETH</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Vault Management */}
             <div className="bg-white rounded-lg shadow-lg p-6">
               <button
@@ -635,45 +660,9 @@ const App = () => {
               ))}
             </div>
 
-            {/* Buy NFT */}
-            {!isOwner && (
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                <h2 className="text-xl font-bold mb-4">Buy This NFT</h2>
-                <div className="space-y-4">
-                  <div className="bg-orange-50 p-4 rounded-lg">
-                    <div className="text-sm text-gray-600 mb-1">Purchase Price</div>
-                    <div className="text-2xl font-bold text-orange-600">
-                      {formatEther(contractData.currentPrice)} ETH
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Your New Price (ETH)</label>
-                    <input
-                      type="number" min="0"
-                      value={buyPrice}
-                      onChange={(e) => setBuyPrice(e.target.value)}
-                      placeholder="0.002"
-                      step="0.001"
-                      className="w-full px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                    />
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    Payment comes from your deposited balance, not your wallet. Deposit at least {formatEther(contractData.currentPrice)} ETH first.
-                  </p>
-                  <button
-                    onClick={async () => { if (await handleBuyNFT(buyPrice)) setBuyPrice(''); }}
-                    disabled={loading || !buyPrice || parseFloat(buyPrice) <= 0}
-                    className="w-full bg-orange-500 text-white px-6 py-3 rounded-lg hover:bg-orange-600 disabled:bg-gray-400 font-bold"
-                  >
-                    Buy NFT
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* Earmark System */}
             {isOwner && (
-              <div className="bg-white rounded-lg shadow-lg p-6 lg:col-span-2">
+              <div className="bg-white rounded-lg shadow-lg p-6">
                 <button
                   onClick={() => setEarmarkOpen(!earmarkOpen)}
                   className="w-full flex items-center justify-between"
@@ -747,9 +736,45 @@ const App = () => {
               </div>
             )}
 
+            {/* Buy NFT */}
+            {!isOwner && (
+              <div className="bg-white rounded-lg shadow-lg p-6">
+                <h2 className="text-xl font-bold mb-4">Buy This NFT</h2>
+                <div className="space-y-4">
+                  <div className="bg-orange-50 p-4 rounded-lg">
+                    <div className="text-sm text-gray-600 mb-1">Purchase Price</div>
+                    <div className="text-2xl font-bold text-orange-600">
+                      {formatEther(contractData.currentPrice)} ETH
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Your New Price (ETH)</label>
+                    <input
+                      type="number" min="0"
+                      value={buyPrice}
+                      onChange={(e) => setBuyPrice(e.target.value)}
+                      placeholder="0.002"
+                      step="0.001"
+                      className="w-full px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Payment comes from your deposited balance, not your wallet. Deposit at least {formatEther(contractData.currentPrice)} ETH first.
+                  </p>
+                  <button
+                    onClick={async () => { if (await handleBuyNFT(buyPrice)) setBuyPrice(''); }}
+                    disabled={loading || !buyPrice || parseFloat(buyPrice) <= 0}
+                    className="w-full bg-orange-500 text-white px-6 py-3 rounded-lg hover:bg-orange-600 disabled:bg-gray-400 font-bold"
+                  >
+                    Buy NFT
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Claim Earmark */}
             {isEarmarkReceiver && earmark.active && (
-              <div className="bg-white rounded-lg shadow-lg p-6 lg:col-span-2">
+              <div className="bg-white rounded-lg shadow-lg p-6">
                 <h2 className="text-xl font-bold mb-4 text-purple-600">🎁 Claim Your Earmarked NFT!</h2>
                 <div className="space-y-4">
                   <div className="bg-purple-50 p-4 rounded-lg">
@@ -776,33 +801,6 @@ const App = () => {
                   >
                     Claim Earmarked NFT
                   </button>
-                </div>
-              </div>
-            )}
-            {/* Top Taxpayers */}
-            {topTaxpayers.length > 0 && (
-              <div className="bg-white rounded-lg shadow-lg p-6 lg:col-span-2">
-                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                  <TrendingUp size={20} className="text-orange-500" />
-                  Patty Daddies
-                </h2>
-                <div className="space-y-2">
-                  {topTaxpayers.map((entry, i) => (
-                    <div key={entry.address} className="flex items-center gap-3">
-                      <div className="w-7 text-center font-bold text-sm shrink-0">
-                        {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-gray-400">{i + 1}</span>}
-                      </div>
-                      <div className="flex-1 min-w-0 flex items-center justify-between gap-2 bg-gray-50 rounded-lg px-3 py-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <ExplorerLink address={entry.address}>
-                            <span className="font-mono text-sm">{formatAddress(entry.address)}</span>
-                          </ExplorerLink>
-                          {entry.address === account && <span className="text-xs text-green-600 font-semibold shrink-0">You</span>}
-                        </div>
-                        <span className="font-mono font-bold text-sm text-orange-600 shrink-0">{formatEther(entry.total)} ETH</span>
-                      </div>
-                    </div>
-                  ))}
                 </div>
               </div>
             )}
