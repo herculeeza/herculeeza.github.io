@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/forms";
 
 body {
   margin: 0;
@@ -22,4 +23,56 @@ input[type="number"]::-webkit-outer-spin-button {
 
 input[type="number"] {
   -moz-appearance: textfield;
+}
+
+/* Toast slide-in */
+.toast-enter {
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Burger loading animation */
+.burger-stack {
+  line-height: 0.7;
+}
+
+.burger-layer {
+  animation: dropIn 0.4s ease-out both, sizzle 1.5s ease-in-out 0.8s infinite;
+}
+
+@keyframes dropIn {
+  from {
+    opacity: 0;
+    transform: translateY(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sizzle {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-1.5px); }
+  75% { transform: translateX(1.5px); }
+}
+
+.burger-progress {
+  animation: grill 3s ease-in-out infinite;
+}
+
+@keyframes grill {
+  0% { width: 5%; }
+  50% { width: 85%; }
+  100% { width: 5%; }
 }
