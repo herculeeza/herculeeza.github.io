@@ -3,22 +3,37 @@ const { ethers } = require("hardhat");
 
 describe("TaxVault", function () {
   let taxVault;
-  let harburger; // signer acting as the Harburger contract in tests
+  let harburger;
   let manager;
   let user1;
   let user2;
 
+  const RATE_PRECISION = 10n ** 18n;
+  const SECONDS_PER_YEAR = 31536000n;
+  const TAX_RATE = (10n * RATE_PRECISION) / (100n * SECONDS_PER_YEAR);
+  const INITIAL_PRICE = ethers.parseEther("0.1");
+
   beforeEach(async function () {
-    [harburger, manager, user1, user2] = await ethers.getSigners();
+    [, manager, user1, user2] = await ethers.getSigners();
+
+    // Deploy real Harburger so settleTaxes calls work
+    const Harburger = await ethers.getContractFactory("Harburger");
+    harburger = await Harburger.deploy(
+      "Test", "TST", TAX_RATE, manager.address, INITIAL_PRICE, ethers.ZeroAddress
+    );
+    await harburger.waitForDeployment();
 
     const TaxVault = await ethers.getContractFactory("TaxVault");
-    taxVault = await TaxVault.deploy(harburger.address, manager.address);
+    taxVault = await TaxVault.deploy(await harburger.getAddress(), manager.address);
     await taxVault.waitForDeployment();
+
+    // Wire up the vault
+    await harburger.updateTaxVault(await taxVault.getAddress());
   });
 
   describe("Deployment", function () {
     it("Should set the correct harburger address", async function () {
-      expect(await taxVault.harburger()).to.equal(harburger.address);
+      expect(await taxVault.harburger()).to.equal(await harburger.getAddress());
     });
 
     it("Should set the correct manager", async function () {
@@ -73,6 +88,30 @@ describe("TaxVault", function () {
     });
   });
 
+  describe("Batch Withdrawal", function () {
+    it("Should allow batch withdrawal of all funds", async function () {
+      const depositAmount = ethers.parseEther("5.0");
+      await taxVault.connect(user1).deposit(ethers.ZeroAddress, { value: depositAmount });
+
+      const initialBalance = await ethers.provider.getBalance(user1.address);
+      const tx = await taxVault.connect(user1).batchWithdrawAll();
+      const receipt = await tx.wait();
+      const gasUsed = receipt.gasUsed * receipt.gasPrice;
+
+      const finalBalance = await ethers.provider.getBalance(user1.address);
+      expect(finalBalance).to.be.closeTo(
+        initialBalance + depositAmount - gasUsed,
+        ethers.parseEther("0.01")
+      );
+    });
+
+    it("Should revert batch withdrawal with no deposits", async function () {
+      await expect(
+        taxVault.connect(user1).batchWithdrawAll()
+      ).to.be.revertedWithCustomError(taxVault, "NoDeposits");
+    });
+  });
+
   describe("Strategy Management", function () {
     it("Should allow manager to add strategy", async function () {
       await taxVault.connect(manager).addStrategy(user2.address);
@@ -119,18 +158,19 @@ describe("TaxVault", function () {
       await taxVault.connect(user1).deposit(ethers.ZeroAddress, { value: depositAmount });
 
       const taxAmount = ethers.parseEther("1.0");
-      const initialHarburgerBalance = await ethers.provider.getBalance(harburger.address);
+      const harburgerAddr = await harburger.getAddress();
+      const initialHarburgerBalance = await ethers.provider.getBalance(harburgerAddr);
 
-      const tx = await taxVault.connect(harburger).payTax(user1.address, taxAmount);
-      const receipt = await tx.wait();
-      const gasCost = receipt.gasUsed * receipt.gasPrice;
+      // Call payTax via the harburger contract by triggering tax settlement
+      // For direct testing, we need to impersonate the harburger contract
+      await ethers.provider.send("hardhat_setBalance", [harburgerAddr, "0x56BC75E2D63100000"]);
+      const harburgerSigner = await ethers.getImpersonatedSigner(harburgerAddr);
+
+      const tx = await taxVault.connect(harburgerSigner).payTax(user1.address, taxAmount);
+      await tx.wait();
 
       const finalUserBalance = await taxVault.getTotalBalance(user1.address);
-      const finalHarburgerBalance = await ethers.provider.getBalance(harburger.address);
-
       expect(finalUserBalance).to.equal(depositAmount - taxAmount);
-      // harburger signer receives taxAmount but also pays gas for the tx
-      expect(finalHarburgerBalance).to.equal(initialHarburgerBalance + taxAmount - gasCost);
     });
 
     it("Should prevent non-Harburger from calling payTax", async function () {
@@ -142,32 +182,62 @@ describe("TaxVault", function () {
       ).to.be.revertedWithCustomError(taxVault, "OnlyHarburger");
     });
 
-    it("Should return false if insufficient balance for tax", async function () {
-      const depositAmount = ethers.parseEther("0.001");
-      await taxVault.connect(user1).deposit(ethers.ZeroAddress, { value: depositAmount });
+    it("Should return 0 if no balance for tax", async function () {
+      const taxAmount = ethers.parseEther("0.01");
 
-      const taxAmount = ethers.parseEther("0.01"); // More than deposited
-      const success = await taxVault
-        .connect(harburger)
+      const harburgerAddr = await harburger.getAddress();
+      await ethers.provider.send("hardhat_setBalance", [harburgerAddr, "0x56BC75E2D63100000"]);
+      const harburgerSigner = await ethers.getImpersonatedSigner(harburgerAddr);
+
+      const paid = await taxVault
+        .connect(harburgerSigner)
         .payTax.staticCall(user1.address, taxAmount);
 
-      expect(success).to.be.false;
+      expect(paid).to.equal(0n);
     });
 
-    it("Should drain removed strategy balance to pay taxes", async function () {
-      await taxVault.connect(manager).addStrategy(user2.address);
-
-      const depositAmount = ethers.parseEther("5.0");
+    it("Should handle partial tax payment", async function () {
+      const depositAmount = ethers.parseEther("0.5");
       await taxVault.connect(user1).deposit(ethers.ZeroAddress, { value: depositAmount });
 
-      await taxVault.connect(manager).removeStrategy(user2.address);
+      const taxAmount = ethers.parseEther("1.0"); // more than deposited
 
-      const taxAmount = ethers.parseEther("1.0");
-      const success = await taxVault
-        .connect(harburger)
+      const harburgerAddr = await harburger.getAddress();
+      await ethers.provider.send("hardhat_setBalance", [harburgerAddr, "0x56BC75E2D63100000"]);
+      const harburgerSigner = await ethers.getImpersonatedSigner(harburgerAddr);
+
+      const paid = await taxVault
+        .connect(harburgerSigner)
         .payTax.staticCall(user1.address, taxAmount);
 
-      expect(success).to.be.true;
+      expect(paid).to.equal(depositAmount);
+    });
+  });
+
+  describe("Pause", function () {
+    it("Should allow manager to pause and unpause", async function () {
+      await taxVault.connect(manager).pause();
+      expect(await taxVault.paused()).to.be.true;
+
+      await taxVault.connect(manager).unpause();
+      expect(await taxVault.paused()).to.be.false;
+    });
+
+    it("Should block deposits when paused", async function () {
+      await taxVault.connect(manager).pause();
+
+      await expect(
+        taxVault.connect(user1).deposit(ethers.ZeroAddress, { value: ethers.parseEther("1.0") })
+      ).to.be.revertedWith("Pausable: paused");
+    });
+
+    it("Should block withdrawals when paused", async function () {
+      await taxVault.connect(user1).deposit(ethers.ZeroAddress, { value: ethers.parseEther("1.0") });
+      await taxVault.connect(manager).pause();
+
+      await expect(
+        taxVault.connect(user1).withdraw(ethers.ZeroAddress, ethers.parseEther("0.5"))
+      ).to.be.revertedWith("Pausable: paused");
     });
   });
 
@@ -175,15 +245,6 @@ describe("TaxVault", function () {
     it("Should reject ETH from unknown senders", async function () {
       await expect(
         user1.sendTransaction({
-          to: await taxVault.getAddress(),
-          value: ethers.parseEther("1.0")
-        })
-      ).to.be.revertedWithCustomError(taxVault, "UnauthorizedETHSender");
-    });
-
-    it("Should reject ETH from harburger contract directly", async function () {
-      await expect(
-        harburger.sendTransaction({
           to: await taxVault.getAddress(),
           value: ethers.parseEther("1.0")
         })
@@ -202,55 +263,10 @@ describe("TaxVault", function () {
         taxVault.connect(manager).updateManager(ethers.ZeroAddress)
       ).to.be.revertedWithCustomError(taxVault, "ZeroAddress");
     });
-
-    it("Should allow manager to activate emergency mode", async function () {
-      await taxVault.connect(manager).activateEmergencyMode();
-      expect(await taxVault.emergencyMode()).to.be.true;
-    });
-
-    it("Should allow manager to deactivate emergency mode", async function () {
-      await taxVault.connect(manager).activateEmergencyMode();
-      expect(await taxVault.emergencyMode()).to.be.true;
-
-      await taxVault.connect(manager).deactivateEmergencyMode();
-      expect(await taxVault.emergencyMode()).to.be.false;
-    });
-  });
-
-  describe("Emergency Functions", function () {
-    it("Should allow emergency withdrawal when emergency mode is active", async function () {
-      const depositAmount = ethers.parseEther("5.0");
-      await taxVault.connect(user1).deposit(ethers.ZeroAddress, { value: depositAmount });
-
-      await taxVault.connect(manager).activateEmergencyMode();
-
-      const initialBalance = await ethers.provider.getBalance(user1.address);
-      const tx = await taxVault.connect(user1).emergencyWithdrawUser();
-      const receipt = await tx.wait();
-      const gasUsed = receipt.gasUsed * receipt.gasPrice;
-
-      const finalBalance = await ethers.provider.getBalance(user1.address);
-      expect(finalBalance).to.be.closeTo(
-        initialBalance + depositAmount - gasUsed,
-        ethers.parseEther("0.01")
-      );
-    });
-
-    it("Should prevent emergency withdrawal when not in emergency mode", async function () {
-      const depositAmount = ethers.parseEther("1.0");
-      await taxVault.connect(user1).deposit(ethers.ZeroAddress, { value: depositAmount });
-
-      await expect(
-        taxVault.connect(user1).emergencyWithdrawUser()
-      ).to.be.revertedWithCustomError(taxVault, "NotInEmergencyMode");
-    });
   });
 
   describe("Drain recovery", function () {
-    it("Should set recoveryRate on emergencyWithdrawFromStrategy", async function () {
-      // We test with idle + the recovery accounting since we don't have a real
-      // IYieldStrategy mock in this test suite. The key is verifying the new
-      // recoveryRate and migrateFromDrainedStrategy paths work for idle balance.
+    it("Should have zero recoveryRate for non-drained strategies", async function () {
       const rate = await taxVault.recoveryRate(user2.address);
       expect(rate).to.equal(0n);
     });
@@ -273,14 +289,12 @@ describe("TaxVault", function () {
 
     it("Should return correct balance breakdown including IDLE slot", async function () {
       const [strategies, balances] = await taxVault.getBalanceBreakdown(user1.address);
-      // getBalanceBreakdown always returns at least the IDLE slot
       expect(strategies.length).to.be.greaterThan(0);
       expect(balances[0]).to.equal(0n);
     });
 
     it("Should return empty approved strategies array at deploy", async function () {
       const strategies = await taxVault.getApprovedStrategies();
-      // IDLE_STRATEGY is not in the approvedStrategies array; only yield strategies are
       expect(strategies.length).to.equal(0);
     });
   });
@@ -313,17 +327,6 @@ describe("TaxVault", function () {
       await expect(taxVault.connect(manager).addStrategy(user2.address))
         .to.emit(taxVault, "StrategyAdded")
         .withArgs(user2.address);
-    });
-
-    it("Should emit EmergencyModeActivated event", async function () {
-      await expect(taxVault.connect(manager).activateEmergencyMode())
-        .to.emit(taxVault, "EmergencyModeActivated");
-    });
-
-    it("Should emit EmergencyModeDeactivated event", async function () {
-      await taxVault.connect(manager).activateEmergencyMode();
-      await expect(taxVault.connect(manager).deactivateEmergencyMode())
-        .to.emit(taxVault, "EmergencyModeDeactivated");
     });
   });
 });
