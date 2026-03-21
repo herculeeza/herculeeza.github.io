@@ -9,6 +9,7 @@ export const CONTRACT_ABI = [
   "function symbol() view returns (string)",
   "function tokenURI(uint256) view returns (string)",
   "function RATE_PRECISION() view returns (uint256)",
+  "function paused() view returns (bool)",
 
   "function getAccountBalance(address) view returns (uint256 balance, uint256 debt)",
   "function calculateTaxes(address) view returns (uint256)",
@@ -25,6 +26,7 @@ export const CONTRACT_ABI = [
   "function cancelEarmark()",
   "function enableVault()",
   "function disableVault()",
+  "function settleTaxes(address account)",
 
   // ── Events ────────────────────────────────────────────────────────────────
   "event PriceSet(address indexed owner, uint256 newPrice)",
@@ -58,13 +60,20 @@ export const CONTRACT_ABI = [
 ];
 
 export const TAX_VAULT_ABI = [
+  // ── View ──────────────────────────────────────────────────────────────────
+  "function getTotalBalance(address user) view returns (uint256)",
+  "function getBalanceBreakdown(address user) view returns (address[] strategies, uint256[] balances)",
+  "function getBalanceInStrategy(address user, address strategy) view returns (uint256)",
+  "function getApprovedStrategies() view returns (address[])",
+  "function IDLE_STRATEGY() view returns (address)",
+  "function paused() view returns (bool)",
+
+  // ── Write ─────────────────────────────────────────────────────────────────
   "function deposit(address strategy) payable",
   "function withdraw(address strategy, uint256 amount)",
   "function moveStrategy(address from, address to, uint256 amount)",
-  "function getTotalBalance(address user) view returns (uint256)",
-  "function getBalanceBreakdown(address user) view returns (address[] strategies, uint256[] balances)",
-  "function getApprovedStrategies() view returns (address[])",
-  "function IDLE_STRATEGY() view returns (address)",
+  "function batchWithdrawAll()",
+  "function migrateFromDrainedStrategy(address strategy)",
 ];
 
 export const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS || "";

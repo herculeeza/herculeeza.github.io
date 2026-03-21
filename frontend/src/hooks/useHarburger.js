@@ -402,6 +402,13 @@ export function useHarburger() {
     }, 'Vault disabled')
   , [contract, exec]);
 
+  const handleBatchWithdrawAll = useCallback(() =>
+    exec(async () => {
+      const tx = await vaultContract.batchWithdrawAll();
+      await tx.wait();
+    }, 'All vault funds withdrawn')
+  , [vaultContract, exec]);
+
   // ---- Derived ----
 
   const isOwner = account && contractData.currentOwner.toLowerCase() === account.toLowerCase();
@@ -426,7 +433,7 @@ export function useHarburger() {
     connectWallet,
     handleDeposit, handleWithdraw, handleSetPrice, handleBuyNFT,
     handleEarmark, handleClaimEarmark, handleCancelEarmark,
-    handleEnableVault, handleDisableVault,
+    handleEnableVault, handleDisableVault, handleBatchWithdrawAll,
     handleMoveStrategy, handleMoveToVault, handleMoveFromVault,
     formatAddress, formatEther, annualTaxPercent
   };
