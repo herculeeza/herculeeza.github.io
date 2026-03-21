@@ -7,7 +7,7 @@ async function main() {
   console.log("Balance:", ethers.formatEther(await ethers.provider.getBalance(deployer.address)), "ETH");
 
   // Existing TaxVault from prior deployment
-  const TAX_VAULT = "0xA9d83d5d185cf10d9cB0840A290d6d098D94285e";
+  const TAX_VAULT = "0x5aE64F88F4157c88B1Ff534a7d51cFF4a70Ef63e";
 
   // Aave V3 Sepolia addresses
   const AAVE_POOL_ADDRESSES_PROVIDER = "0x012bAC54348C0E635dCAc9D5FB99f06F24136C9A";
