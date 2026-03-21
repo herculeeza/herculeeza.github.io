@@ -187,11 +187,11 @@ const App = () => {
               <span className="burger-layer" style={{ animationDelay: '0.45s' }}>🥩</span>
               <span className="burger-layer" style={{ animationDelay: '0.6s' }}>🍞</span>
             </div>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0">
               <div className="font-bold text-sm">Grilling your transaction...</div>
               <div className="text-xs text-yellow-700 mt-1">Confirm in wallet & wait for it to cook</div>
-              <div className="mt-2 w-2 h-20 bg-yellow-200 rounded-full overflow-hidden flex flex-col-reverse">
-                <div className="w-full bg-orange-400 rounded-full burger-progress-vertical" />
+              <div className="mt-2 h-2 bg-yellow-200 rounded-full overflow-hidden">
+                <div className="h-full bg-orange-400 rounded-full burger-progress" />
               </div>
             </div>
           </div>
