@@ -1,0 +1,15 @@
+{
+  "network": "sepolia",
+  "harburger": "0x21419d8cBBd9789ceba7A4a3B4fa4D8e9aa6F09e",
+  "taxVault": "0xA9d83d5d185cf10d9cB0840A290d6d098D94285e",
+  "aaveStrategy": "0x80f2F1B0Ea9Ba539a21910Bdd386b85EBe10f0C9",
+  "compoundStrategy": null,
+  "configuration": {
+    "nftName": "Harburger NFT",
+    "nftSymbol": "HBRG",
+    "taxRate": "3170979198",
+    "taxReceiver": "0xa60Ec55FE6469e6cb3206c033EaB760470F9F5c6",
+    "initialPrice": "1000000000000000"
+  },
+  "timestamp": "2026-03-20T00:00:00.000Z"
+}

@@ -149,9 +149,9 @@ async function main() {
     configuration: {
       nftName: NFT_NAME,
       nftSymbol: NFT_SYMBOL,
-      taxRate: TAX_RATE,
+      taxRate: TAX_RATE.toString(),
       taxReceiver: TAX_RECEIVER,
-      initialPrice: INITIAL_PRICE
+      initialPrice: INITIAL_PRICE.toString()
     },
     timestamp: new Date().toISOString()
   };
