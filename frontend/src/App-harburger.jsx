@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { ethers } from 'ethers';
-import { AlertCircle, Wallet, DollarSign, Tag, Gift, TrendingUp, ExternalLink, Github, ArrowDownUp, ArrowRightLeft, ChevronDown, Pencil, Check, X } from 'lucide-react';
+import { AlertCircle, Wallet, DollarSign, Tag, Gift, TrendingUp, ExternalLink, Github, Twitter, ArrowDownUp, ArrowRightLeft, ChevronDown, Pencil, Check, X } from 'lucide-react';
 import { CONTRACT_ADDRESS } from './contractABI';
 import { useHarburger } from './hooks/useHarburger';
 
@@ -821,6 +821,16 @@ const App = () => {
           >
             <ExternalLink size={14} />
             Contract
+          </a>
+          <span className="text-gray-300">|</span>
+          <a
+            href="https://x.com/HarburgerBot"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 hover:text-orange-600 transition-colors"
+          >
+            <Twitter size={14} />
+            @HarburgerBot
           </a>
           <span className="text-gray-300">|</span>
           <a
