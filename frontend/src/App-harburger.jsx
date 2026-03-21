@@ -198,86 +198,118 @@ const App = () => {
           </div>
         )}
 
-        {!account ? (
-          <div className="bg-white rounded-lg shadow-lg p-8 sm:p-12 text-center">
-            <Wallet size={64} className="mx-auto mb-4 text-gray-400" />
-            <h2 className="text-2xl font-bold mb-2">Connect Your Wallet</h2>
-            <p className="text-gray-600">Connect your wallet to interact with the HARBURGER</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Harburger */}
-            <div className="bg-white rounded-lg shadow-lg p-6">
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <Tag size={20} className="text-orange-500" />
-                Harburger
-              </h2>
-              <div className="bg-orange-50 rounded-lg p-4 mb-4">
-                <div className="text-sm text-orange-700">Current Price</div>
-                <div className="flex items-center gap-2">
-                  <div className="font-bold text-2xl text-orange-600 font-mono">
-                    {formatEther(contractData.currentPrice)} ETH
-                  </div>
-                  {isOwner && !editingPrice && (
-                    <button
-                      onClick={() => setEditingPrice(true)}
-                      className="text-orange-400 hover:text-orange-600 transition-colors"
-                      title="Change price"
-                    >
-                      <Pencil size={16} />
-                    </button>
-                  )}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Harburger */}
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+              <Tag size={20} className="text-orange-500" />
+              Harburger
+            </h2>
+            <div className="bg-orange-50 rounded-lg p-4 mb-4">
+              <div className="text-sm text-orange-700">Current Price</div>
+              <div className="flex items-center gap-2">
+                <div className="font-bold text-2xl text-orange-600 font-mono">
+                  {formatEther(contractData.currentPrice)} ETH
                 </div>
-                {isOwner && editingPrice && (
-                  <div className="flex gap-2 mt-2">
-                    <input
-                      type="number" min="0"
-                      value={newPrice}
-                      onChange={(e) => setNewPrice(e.target.value)}
-                      placeholder="New price in ETH"
-                      step="0.001"
-                      className="flex-1 min-w-0 px-3 py-1.5 text-sm border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                      autoFocus
-                    />
-                    <button
-                      onClick={async () => { if (await handleSetPrice(newPrice)) { setNewPrice(''); setEditingPrice(false); } }}
-                      disabled={loading || !newPrice || parseFloat(newPrice) <= 0}
-                      className="bg-orange-500 text-white p-1.5 rounded-lg hover:bg-orange-600 disabled:bg-gray-400"
-                    >
-                      <Check size={16} />
-                    </button>
-                    <button
-                      onClick={() => { setNewPrice(''); setEditingPrice(false); }}
-                      className="text-gray-400 hover:text-gray-600 p-1.5"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
+                {isOwner && !editingPrice && (
+                  <button
+                    onClick={() => setEditingPrice(true)}
+                    className="text-orange-400 hover:text-orange-600 transition-colors"
+                    title="Change price"
+                  >
+                    <Pencil size={16} />
+                  </button>
                 )}
-                <div className="flex items-center gap-1 mt-2 text-xs text-gray-500">
-                  <span>Owner:</span>
-                  <ExplorerLink address={contractData.currentOwner}>
-                    <span className="font-mono font-medium text-gray-700">{formatAddress(contractData.currentOwner)}</span>
-                  </ExplorerLink>
-                  {isOwner && <span className="text-green-600 font-semibold">← You!</span>}
-                </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <div className="text-xs text-gray-500">Tax Rate</div>
-                  <div className="font-bold font-mono mt-0.5">{annualTaxPercent(contractData.taxRate)}%<span className="text-xs font-normal text-gray-400"> /yr</span></div>
+              {isOwner && editingPrice && (
+                <div className="flex gap-2 mt-2">
+                  <input
+                    type="number" min="0"
+                    value={newPrice}
+                    onChange={(e) => setNewPrice(e.target.value)}
+                    placeholder="New price in ETH"
+                    step="0.001"
+                    className="flex-1 min-w-0 px-3 py-1.5 text-sm border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    autoFocus
+                  />
+                  <button
+                    onClick={async () => { if (await handleSetPrice(newPrice)) { setNewPrice(''); setEditingPrice(false); } }}
+                    disabled={loading || !newPrice || parseFloat(newPrice) <= 0}
+                    className="bg-orange-500 text-white p-1.5 rounded-lg hover:bg-orange-600 disabled:bg-gray-400"
+                  >
+                    <Check size={16} />
+                  </button>
+                  <button
+                    onClick={() => { setNewPrice(''); setEditingPrice(false); }}
+                    className="text-gray-400 hover:text-gray-600 p-1.5"
+                  >
+                    <X size={16} />
+                  </button>
                 </div>
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <div className="text-xs text-gray-500">Tax Receiver</div>
-                  <div className="mt-0.5">
-                    <ExplorerLink address={contractData.taxReceiver}>
-                      <span className="font-mono text-sm font-medium">{formatAddress(contractData.taxReceiver)}</span>
-                    </ExplorerLink>
-                  </div>
+              )}
+              <div className="flex items-center gap-1 mt-2 text-xs text-gray-500">
+                <span>Owner:</span>
+                <ExplorerLink address={contractData.currentOwner}>
+                  <span className="font-mono font-medium text-gray-700">{formatAddress(contractData.currentOwner)}</span>
+                </ExplorerLink>
+                {isOwner && <span className="text-green-600 font-semibold">← You!</span>}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <div className="text-xs text-gray-500">Tax Rate</div>
+                <div className="font-bold font-mono mt-0.5">{annualTaxPercent(contractData.taxRate)}%<span className="text-xs font-normal text-gray-400"> /yr</span></div>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <div className="text-xs text-gray-500">Tax Receiver</div>
+                <div className="mt-0.5">
+                  <ExplorerLink address={contractData.taxReceiver}>
+                    <span className="font-mono text-sm font-medium">{formatAddress(contractData.taxReceiver)}</span>
+                  </ExplorerLink>
                 </div>
               </div>
             </div>
+          </div>
 
+          {/* Top Taxpayers — visible without wallet */}
+          {topTaxpayers.length > 0 && (
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                <TrendingUp size={20} className="text-orange-500" />
+                Patty Daddies
+              </h2>
+              <div className="space-y-2">
+                {topTaxpayers.map((entry, i) => (
+                  <div key={entry.address} className="flex items-center gap-3">
+                    <div className="w-7 text-center font-bold text-sm shrink-0">
+                      {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-gray-400">{i + 1}</span>}
+                    </div>
+                    <div className="flex-1 min-w-0 flex items-center justify-between gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <ExplorerLink address={entry.address}>
+                          <span className="font-mono text-sm">{formatAddress(entry.address)}</span>
+                        </ExplorerLink>
+                        {entry.address === account && <span className="text-xs text-green-600 font-semibold shrink-0">You</span>}
+                      </div>
+                      <span className="font-mono font-bold text-sm text-orange-600 shrink-0">{formatEther(entry.total)} ETH</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Connect wallet prompt — only when not connected */}
+          {!account && (
+            <div className="bg-white rounded-lg shadow-lg p-8 text-center lg:col-span-2">
+              <Wallet size={48} className="mx-auto mb-3 text-gray-400" />
+              <h2 className="text-xl font-bold mb-1">Connect Your Wallet</h2>
+              <p className="text-gray-600 text-sm">Connect your wallet to buy, deposit, manage your vault, and more</p>
+            </div>
+          )}
+
+          {account && (
+            <>
             {/* Your Account */}
             <div className="bg-white rounded-lg shadow-lg p-6">
               <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
@@ -523,34 +555,6 @@ const App = () => {
                 </div>
               )}
             </div>
-
-            {/* Top Taxpayers */}
-            {topTaxpayers.length > 0 && (
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                  <TrendingUp size={20} className="text-orange-500" />
-                  Patty Daddies
-                </h2>
-                <div className="space-y-2">
-                  {topTaxpayers.map((entry, i) => (
-                    <div key={entry.address} className="flex items-center gap-3">
-                      <div className="w-7 text-center font-bold text-sm shrink-0">
-                        {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-gray-400">{i + 1}</span>}
-                      </div>
-                      <div className="flex-1 min-w-0 flex items-center justify-between gap-2 bg-gray-50 rounded-lg px-3 py-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <ExplorerLink address={entry.address}>
-                            <span className="font-mono text-sm">{formatAddress(entry.address)}</span>
-                          </ExplorerLink>
-                          {entry.address === account && <span className="text-xs text-green-600 font-semibold shrink-0">You</span>}
-                        </div>
-                        <span className="font-mono font-bold text-sm text-orange-600 shrink-0">{formatEther(entry.total)} ETH</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Vault Management */}
             <div className="bg-white rounded-lg shadow-lg p-6">
@@ -804,8 +808,9 @@ const App = () => {
                 </div>
               </div>
             )}
-          </div>
-        )}
+          </>
+          )}
+        </div>
 
         {/* Footer */}
         <div className="bg-white rounded-lg shadow-lg p-4 mt-6 mb-4 flex items-center justify-center gap-4 text-sm text-gray-500">

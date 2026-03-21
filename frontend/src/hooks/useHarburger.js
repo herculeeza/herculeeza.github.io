@@ -9,6 +9,13 @@ const EXPECTED_CHAIN_ID = import.meta.env.VITE_CHAIN_ID
   ? Number(import.meta.env.VITE_CHAIN_ID)
   : null;
 
+const DEFAULT_RPC = import.meta.env.VITE_RPC_URL || {
+  1: 'https://ethereum-rpc.publicnode.com',
+  11155111: 'https://ethereum-sepolia-rpc.publicnode.com',
+  42161: 'https://arb1.arbitrum.io/rpc',
+  421614: 'https://sepolia-rollup.arbitrum.io/rpc',
+}[EXPECTED_CHAIN_ID || 1];
+
 function formatAddress(addr) {
   if (!addr) return '';
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
@@ -36,6 +43,15 @@ function annualTaxPercent(rawRate) {
 export function useHarburger() {
   const [account, setAccount] = useState(null);
   const [contract, setContract] = useState(null);
+
+  // Read-only contract for loading data without a wallet
+  const readContract = useMemo(() => {
+    if (!CONTRACT_ADDRESS || !DEFAULT_RPC) return null;
+    try {
+      const provider = new ethers.JsonRpcProvider(DEFAULT_RPC);
+      return new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+    } catch { return null; }
+  }, []);
   const [vaultContract, setVaultContract] = useState(null);
   const [strategies, setStrategies] = useState([]); // approved yield strategies
   const [strategyNames, setStrategyNames] = useState({}); // address -> human name
@@ -218,36 +234,38 @@ export function useHarburger() {
   // ---- Data loading ----
 
   const loadContractData = useCallback(async () => {
-    if (!contract) return;
+    const c = contract || readContract;
+    if (!c) return;
     try {
       const [owner, price, rate, receiver, vault, name, symbol, uri] = await Promise.all([
-        contract.currentOwner(),
-        contract.currentPrice(),
-        contract.taxRate(),
-        contract.taxReceiver(),
-        contract.taxVault(),
-        contract.name(),
-        contract.symbol(),
-        contract.tokenURI(1)
+        c.currentOwner(),
+        c.currentPrice(),
+        c.taxRate(),
+        c.taxReceiver(),
+        c.taxVault(),
+        c.name(),
+        c.symbol(),
+        c.tokenURI(1)
       ]);
       setContractData({
         currentOwner: owner, currentPrice: price.toString(),
         taxRate: rate.toString(), taxReceiver: receiver,
         taxVault: vault, nftName: name, nftSymbol: symbol, tokenURI: uri
       });
-      const em = await contract.earmark();
+      const em = await c.earmark();
       setEarmark({
         creator: em.creator, receiver: em.receiver,
         depositAmount: em.depositAmount.toString(), active: em.active
       });
     } catch (err) { console.error('Error loading contract data:', err); }
-  }, [contract]);
+  }, [contract, readContract]);
 
   const loadTopTaxpayers = useCallback(async () => {
-    if (!contract) return;
+    const c = contract || readContract;
+    if (!c) return;
     try {
-      const filter = contract.filters.TaxPaid();
-      const events = await contract.queryFilter(filter, 0, 'latest');
+      const filter = c.filters.TaxPaid();
+      const events = await c.queryFilter(filter, 0, 'latest');
       const totals = {};
       for (const e of events) {
         const payer = e.args[0];
@@ -260,11 +278,12 @@ export function useHarburger() {
         .slice(0, 10);
       setTopTaxpayers(sorted);
     } catch (err) { console.error('Error loading top taxpayers:', err); }
-  }, [contract]);
+  }, [contract, readContract]);
 
   useEffect(() => {
-    if (contract) loadTopTaxpayers();
-  }, [contract, loadTopTaxpayers]);
+    const c = contract || readContract;
+    if (c) loadTopTaxpayers();
+  }, [contract, readContract, loadTopTaxpayers]);
 
   const [vaultBreakdown, setVaultBreakdown] = useState([]);
   const [walletBalance, setWalletBalance] = useState('0');
@@ -303,6 +322,14 @@ export function useHarburger() {
     } catch (err) { console.error('Error loading account data:', err); }
   }, [account, contract, vaultContract]);
 
+  // Load read-only contract data on mount (no wallet needed)
+  useEffect(() => {
+    if (!account && readContract) {
+      loadContractData();
+    }
+  }, [account, readContract, loadContractData]);
+
+  // Poll contract + account data when wallet is connected
   useEffect(() => {
     if (account && contract) {
       loadContractData();
