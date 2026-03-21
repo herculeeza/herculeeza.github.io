@@ -14,6 +14,7 @@ interface ICmpIWETH {
     function deposit() external payable;
     function withdraw(uint256) external;
     function approve(address spender, uint256 amount) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
 }
 
 /**
@@ -26,6 +27,7 @@ contract CompoundStrategy is IYieldStrategy {
 
     error OnlyVault();
     error ZeroAmount();
+    error ZeroAddress();
     error OnlyVaultRecipient();
     error ETHTransferFailed();
 
@@ -42,6 +44,7 @@ contract CompoundStrategy is IYieldStrategy {
         address _weth,
         address _vault
     ) {
+        if (_comet == address(0) || _weth == address(0) || _vault == address(0)) revert ZeroAddress();
         comet = IComet(_comet);
         weth = ICmpIWETH(_weth);
         vault = _vault;
@@ -58,34 +61,37 @@ contract CompoundStrategy is IYieldStrategy {
 
     function deposit() external payable onlyVault returns (uint256 shares) {
         if (msg.value == 0) revert ZeroAmount();
-        
+
         // Wrap ETH to WETH
         weth.deposit{value: msg.value}();
-        
+
         // Approve Compound
         weth.approve(address(comet), msg.value);
-        
+
         // Supply to Compound
         comet.supply(address(weth), msg.value);
-        
+
         return msg.value;
     }
-    
+
     function withdraw(uint256 amount) external onlyVault returns (uint256) {
         if (amount == 0) revert ZeroAmount();
 
         comet.accrueAccount(address(this));
         comet.withdraw(address(weth), amount);
-        weth.withdraw(amount);
 
-        (bool success, ) = payable(vault).call{value: amount}("");
+        // Check actual WETH balance received (may differ from requested amount)
+        uint256 wethBal = weth.balanceOf(address(this));
+        uint256 toReturn = wethBal < amount ? wethBal : amount;
+        weth.withdraw(toReturn);
+
+        (bool success, ) = payable(vault).call{value: toReturn}("");
         if (!success) revert ETHTransferFailed();
 
-        return amount;
+        return toReturn;
     }
 
-    function balanceOf(address account) external view returns (uint256) {
-        if (account != address(this)) return 0;
+    function balanceOf(address) external view returns (uint256) {
         return comet.balanceOf(address(this));
     }
 
@@ -102,15 +108,16 @@ contract CompoundStrategy is IYieldStrategy {
         if (balance == 0) return 0;
 
         comet.withdraw(address(weth), balance);
-        weth.withdraw(balance);
+        uint256 wethBal = weth.balanceOf(address(this));
+        weth.withdraw(wethBal);
 
-        (bool success, ) = payable(recipient).call{value: balance}("");
+        (bool success, ) = payable(recipient).call{value: wethBal}("");
         if (!success) revert ETHTransferFailed();
 
-        return balance;
+        return wethBal;
     }
-    
+
     // ============ Receive Function ============
-    
+
     receive() external payable {}
 }

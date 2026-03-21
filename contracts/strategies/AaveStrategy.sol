@@ -34,6 +34,7 @@ contract AaveStrategy is IYieldStrategy {
 
     error OnlyVault();
     error ZeroAmount();
+    error ZeroAddress();
     error OnlyVaultRecipient();
     error ETHTransferFailed();
 
@@ -52,6 +53,7 @@ contract AaveStrategy is IYieldStrategy {
         address _aWETH,
         address _vault
     ) {
+        if (_aavePoolAddressesProvider == address(0) || _weth == address(0) || _aWETH == address(0) || _vault == address(0)) revert ZeroAddress();
         IPoolAddressesProvider provider = IPoolAddressesProvider(_aavePoolAddressesProvider);
         aavePool = IPool(provider.getPool());
         weth = IWETH(_weth);
@@ -95,8 +97,7 @@ contract AaveStrategy is IYieldStrategy {
         return withdrawn;
     }
 
-    function balanceOf(address account) external view returns (uint256) {
-        if (account != address(this)) return 0;
+    function balanceOf(address) external view returns (uint256) {
         return aWETH.balanceOf(address(this));
     }
 
