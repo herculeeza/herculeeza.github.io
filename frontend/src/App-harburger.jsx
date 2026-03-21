@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ethers } from 'ethers';
-import { AlertCircle, Wallet, DollarSign, Tag, Gift, TrendingUp, Loader2, ExternalLink, Github, ArrowDownUp, ArrowRightLeft } from 'lucide-react';
+import { AlertCircle, Wallet, DollarSign, Tag, Gift, TrendingUp, ExternalLink, Github, ArrowDownUp, ArrowRightLeft, ChevronDown } from 'lucide-react';
 import { CONTRACT_ADDRESS } from './contractABI';
 import { useHarburger } from './hooks/useHarburger';
 
@@ -11,6 +11,7 @@ const EXPLORER_BASE = {
   42161: 'https://arbiscan.io',
   421614: 'https://sepolia.arbiscan.io',
 }[CHAIN_ID] || 'https://etherscan.io';
+
 
 const ExplorerLink = ({ address, children }) => (
   <a
@@ -29,8 +30,8 @@ const App = () => {
   const {
     account, loading, error, setError, success,
     contractData, accountData, earmark,
-    isOwner, isEarmarkReceiver, vaultBalance, vaultEnabled,
-    strategies, vaultBreakdown,
+    isOwner, isEarmarkReceiver, vaultBalance, walletBalance, topTaxpayers, vaultEnabled,
+    strategies, strategyNames, vaultBreakdown,
     connectWallet,
     handleDeposit, handleWithdraw, handleSetPrice, handleBuyNFT,
     handleEarmark, handleClaimEarmark, handleCancelEarmark,
@@ -39,12 +40,28 @@ const App = () => {
     formatAddress, formatEther, annualTaxPercent
   } = useHarburger();
 
+  // Keep toast visible for at least 1.5s so it doesn't flash
+  const [showLoading, setShowLoading] = useState(false);
+  const loadingSince = useRef(null);
+  useEffect(() => {
+    if (loading) {
+      loadingSince.current = Date.now();
+      setShowLoading(true);
+    } else if (loadingSince.current) {
+      const elapsed = Date.now() - loadingSince.current;
+      const remaining = Math.max(0, 1500 - elapsed);
+      const id = setTimeout(() => setShowLoading(false), remaining);
+      return () => clearTimeout(id);
+    }
+  }, [loading]);
+
   const strategyLabel = (addr) => {
     if (addr === ethers.ZeroAddress) return 'Vault (Idle)';
-    return `Yield Strategy (${formatAddress(addr)})`;
+    return strategyNames[addr] || `Strategy (${formatAddress(addr)})`;
   };
 
   // Form states (UI only — not contract logic)
+  const [dwMode, setDwMode] = useState('deposit');
   const [depositAmount, setDepositAmount] = useState('');
   const [depositDest, setDepositDest] = useState('internal');
   const [withdrawAmount, setWithdrawAmount] = useState('');
@@ -58,6 +75,15 @@ const App = () => {
   const [earmarkDeposit, setEarmarkDeposit] = useState('');
   const [claimPrice, setClaimPrice] = useState('');
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [vaultMgmtOpen, setVaultMgmtOpen] = useState(false);
+  const [earmarkOpen, setEarmarkOpen] = useState(false);
+
+  const isValidRecipient = (val) => {
+    if (!val) return false;
+    if (ethers.isAddress(val)) return true;
+    if (/^[a-zA-Z0-9-]+\.eth$/.test(val)) return true;
+    return false;
+  };
 
   return (
     <div
@@ -71,24 +97,25 @@ const App = () => {
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
               <h1 className="text-2xl sm:text-3xl font-bold text-orange-600">🍔 HARBURGER</h1>
-              <p className="text-sm sm:text-base text-gray-600">A Deliciously Taxing NFT</p>
+              <p className="text-sm sm:text-base text-gray-600 hidden sm:block">A Deliciously Taxing NFT</p>
             </div>
             {!account ? (
               <button
                 onClick={connectWallet}
                 disabled={loading}
-                className="flex items-center justify-center gap-2 bg-orange-500 text-white px-6 py-3 rounded-lg hover:bg-orange-600 disabled:bg-gray-400 transition-colors w-full sm:w-auto"
+                className="flex items-center justify-center gap-2 bg-orange-500 text-white px-4 py-2 sm:px-6 sm:py-3 rounded-lg hover:bg-orange-600 disabled:bg-gray-400 transition-colors whitespace-nowrap shrink-0"
               >
-                <Wallet size={20} />
-                Connect Wallet
+                <Wallet size={18} />
+                <span className="hidden sm:inline">Connect Wallet</span>
+                <span className="sm:hidden">Connect</span>
               </button>
             ) : (
-              <div className="sm:text-right">
-                <div className="text-sm text-gray-600">Connected</div>
-                <div className="font-mono font-bold text-sm sm:text-base">{formatAddress(account)}</div>
+              <div className="text-right shrink-0">
+                <div className="text-xs text-gray-500">Connected</div>
+                <div className="font-mono font-bold text-xs sm:text-sm">{formatAddress(account)}</div>
               </div>
             )}
           </div>
@@ -105,8 +132,8 @@ const App = () => {
               <span className={aboutOpen ? '' : 'inline-block animate-bounce'}>🍔</span>
             </button>
             {!aboutOpen && (
-              <p className="text-orange-400 text-sm mt-2 animate-pulse">
-                go ahead... click it
+              <p className="text-orange-400 text-sm mt-2 animate-pulse text-center">
+                This is the HARBURGER.<br />Go ahead... click it.
               </p>
             )}
           </div>
@@ -151,10 +178,22 @@ const App = () => {
           </div>
         )}
 
-        {loading && (
-          <div className="bg-yellow-50 border border-yellow-300 text-yellow-800 px-4 py-3 rounded-lg mb-6 flex items-center gap-3">
-            <Loader2 size={20} className="animate-spin" />
-            <span>Transaction pending — please confirm in your wallet and wait...</span>
+        {showLoading && (
+          <div className="fixed bottom-6 right-6 z-50 bg-white border border-yellow-300 text-yellow-800 px-5 py-4 rounded-xl shadow-lg flex items-center gap-4 overflow-hidden toast-enter max-w-sm">
+            <div className="text-3xl flex flex-col items-center shrink-0 burger-stack">
+              <span className="burger-layer" style={{ animationDelay: '0s' }}>🍞</span>
+              <span className="burger-layer" style={{ animationDelay: '0.15s' }}>🥬</span>
+              <span className="burger-layer" style={{ animationDelay: '0.3s' }}>🧀</span>
+              <span className="burger-layer" style={{ animationDelay: '0.45s' }}>🥩</span>
+              <span className="burger-layer" style={{ animationDelay: '0.6s' }}>🍞</span>
+            </div>
+            <div className="min-w-0">
+              <div className="font-bold text-sm">Grilling your transaction...</div>
+              <div className="text-xs text-yellow-700 mt-1">Confirm in wallet & wait for it to cook</div>
+              <div className="mt-2 h-2 bg-yellow-200 rounded-full overflow-hidden">
+                <div className="h-full bg-orange-400 rounded-full burger-progress" />
+              </div>
+            </div>
           </div>
         )}
 
@@ -166,124 +205,125 @@ const App = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* NFT Info */}
-            <div className="bg-white rounded-lg shadow-lg p-6">
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <Tag size={20} className="text-orange-500" />
-                NFT Information
-              </h2>
-              <div className="space-y-3">
+            {/* Harburger + Account */}
+            <div className="bg-white rounded-lg shadow-lg p-6 lg:col-span-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div>
-                  <div className="text-sm text-gray-600">Collection</div>
-                  <div className="font-bold">{contractData.nftName} ({contractData.nftSymbol})</div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-600">Current Owner</div>
-                  <div className="font-mono text-sm flex items-center gap-1">
-                    <ExplorerLink address={contractData.currentOwner}>
-                      <span>{formatAddress(contractData.currentOwner)}</span>
-                    </ExplorerLink>
-                    {isOwner && <span className="text-green-600 text-sm ml-1">← You own this!</span>}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-600">Current Price</div>
-                  <div className="font-bold text-2xl text-orange-600">
-                    {formatEther(contractData.currentPrice)} ETH
-                  </div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-600">Tax Rate</div>
-                  <div className="font-bold">{annualTaxPercent(contractData.taxRate)}% per year</div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-600">Tax Receiver</div>
-                  <ExplorerLink address={contractData.taxReceiver}>
-                    <span className="font-mono text-sm">{formatAddress(contractData.taxReceiver)}</span>
-                  </ExplorerLink>
-                </div>
-              </div>
-            </div>
-
-            {/* Account Info */}
-            <div className="bg-white rounded-lg shadow-lg p-6">
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <DollarSign size={20} className="text-green-500" />
-                Your Account
-              </h2>
-              <div className="space-y-3">
-                <div>
-                  <div className="text-sm text-gray-600">Net Balance</div>
-                  <div className="font-bold text-2xl text-green-600">
-                    {formatEther(accountData.netBalance)} ETH
-                  </div>
-                </div>
-                {accountData.debt !== '0' && (
-                  <div>
-                    <div className="text-sm text-gray-600">Outstanding Debt</div>
-                    <div className="font-bold text-lg text-red-600">
-                      {formatEther(accountData.debt)} ETH
+                  <h2 className="text-xl font-bold mb-3 flex items-center gap-2">
+                    <Tag size={20} className="text-orange-500" />
+                    Harburger
+                  </h2>
+                  <div className="bg-orange-50 rounded-lg p-4 mb-3">
+                    <div className="text-sm text-orange-700">Current Price</div>
+                    <div className="font-bold text-2xl text-orange-600 font-mono">
+                      {formatEther(contractData.currentPrice)} ETH
+                    </div>
+                    <div className="flex items-center gap-1 mt-2 text-xs text-gray-500">
+                      <span>Owner:</span>
+                      <ExplorerLink address={contractData.currentOwner}>
+                        <span className="font-mono font-medium text-gray-700">{formatAddress(contractData.currentOwner)}</span>
+                      </ExplorerLink>
+                      {isOwner && <span className="text-green-600 font-semibold">← You!</span>}
                     </div>
                   </div>
-                )}
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <div className="text-xs text-gray-500 mb-1">Balance Breakdown</div>
-                  <div className="text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Internal:</span>
-                      <span className="font-mono font-bold">{formatEther(accountData.rawBalance)} ETH</span>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <div className="text-xs text-gray-500">Tax Rate</div>
+                      <div className="font-bold font-mono mt-0.5">{annualTaxPercent(contractData.taxRate)}%<span className="text-xs font-normal text-gray-400"> /yr</span></div>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <div className="text-xs text-gray-500">Tax Receiver</div>
+                      <div className="mt-0.5">
+                        <ExplorerLink address={contractData.taxReceiver}>
+                          <span className="font-mono text-sm font-medium">{formatAddress(contractData.taxReceiver)}</span>
+                        </ExplorerLink>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h2 className="text-xl font-bold mb-3 flex items-center gap-2">
+                    <DollarSign size={20} className="text-green-500" />
+                    Your Account
+                  </h2>
+                  <div className="bg-green-50 rounded-lg p-4 mb-3">
+                    <div className="text-sm text-green-700">Balance</div>
+                    <div className="font-bold text-2xl text-green-600 font-mono">
+                      {formatEther(accountData.netBalance)} ETH
                     </div>
                     {accountData.usesVault && (
-                      <div className="flex justify-between mt-1">
-                        <span className="text-gray-600">Vault:</span>
-                        <span className="font-mono font-bold text-purple-600">
-                          {formatEther(vaultBalance)} ETH
-                        </span>
+                      <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                        <span>Internal: <span className="font-mono font-medium text-gray-700">{formatEther(accountData.rawBalance)}</span></span>
+                        <span>Vault: <span className="font-mono font-medium text-purple-600">{formatEther(vaultBalance)}</span></span>
                       </div>
                     )}
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="text-sm text-gray-600">Vault Status:</div>
-                  {accountData.usesVault ? (
-                    <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-sm font-semibold">
-                      ✓ Enabled
-                    </span>
-                  ) : (
-                    <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-sm">
-                      Disabled
-                    </span>
+                  {accountData.debt !== '0' && (
+                    <div className="bg-red-50 rounded-lg p-3 mb-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-red-700">Outstanding Debt</span>
+                        <span className="font-bold text-red-600 font-mono">{formatEther(accountData.debt)} ETH</span>
+                      </div>
+                    </div>
                   )}
-                </div>
-                {isOwner && (
-                  <div>
-                    <div className="text-sm text-gray-600">Taxes Owed (pending)</div>
-                    <div className="font-bold text-lg text-orange-600">
-                      {formatEther(accountData.taxesOwed)} ETH
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <div className="text-xs text-gray-500">Taxes Paid</div>
+                      <div className="font-bold font-mono mt-0.5">
+                        {formatEther((BigInt(accountData.totalTaxesPaid || '0') + BigInt(accountData.taxesOwed || '0')).toString())} ETH
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <div className="text-xs text-gray-500">Vault</div>
+                      <div className="mt-0.5">
+                        {accountData.usesVault ? (
+                          <span className="text-sm font-semibold text-purple-600">Enabled</span>
+                        ) : (
+                          <span className="text-sm font-semibold text-gray-400">Disabled</span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                )}
-                <div>
-                  <div className="text-sm text-gray-600">Total Taxes Paid</div>
-                  <div className="font-bold">{formatEther(accountData.totalTaxesPaid)} ETH</div>
                 </div>
               </div>
             </div>
 
-            {/* Deposit/Withdraw */}
+            {/* Deposit / Withdraw / Move */}
             <div className="bg-white rounded-lg shadow-lg p-6">
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <ArrowDownUp size={20} className="text-green-500" />
-                Deposit & Withdraw
-              </h2>
-              <div className="space-y-4">
+              <div className="flex items-center gap-3 mb-4">
+                <ArrowDownUp size={20} className="text-green-500 shrink-0" />
+                <div className="flex bg-gray-100 rounded-lg p-1 flex-1">
+                  <button
+                    onClick={() => setDwMode('deposit')}
+                    className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors ${dwMode === 'deposit' ? 'bg-white shadow text-green-600' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    Deposit
+                  </button>
+                  <button
+                    onClick={() => setDwMode('withdraw')}
+                    className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors ${dwMode === 'withdraw' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    Withdraw
+                  </button>
+                  {vaultEnabled && (
+                    <button
+                      onClick={() => setDwMode('move')}
+                      className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors ${dwMode === 'move' ? 'bg-white shadow text-purple-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Move
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {dwMode === 'deposit' && (
                 <div>
-                  <label className="block text-sm font-medium mb-2">Deposit (ETH)</label>
                   {vaultEnabled && (
                     <select
                       value={depositDest}
                       onChange={(e) => setDepositDest(e.target.value)}
-                      className="w-full mb-2 px-3 py-2 text-sm border rounded-lg bg-white focus:ring-2 focus:ring-orange-500 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%239ca3af%22%20d%3D%22M6%208L1%203h10z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_12px_center] bg-no-repeat pr-8"
+                      className="w-full mb-2 px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                     >
                       <option value="internal">Internal Balance</option>
                       {strategies.map((s) => (
@@ -292,30 +332,41 @@ const App = () => {
                     </select>
                   )}
                   <div className="flex gap-2">
-                    <input
-                      type="number"
-                      value={depositAmount}
-                      onChange={(e) => setDepositAmount(e.target.value)}
-                      placeholder="0.001"
-                      step="0.001"
-                      className="flex-1 min-w-0 px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                    />
+                    <div className="flex-1 min-w-0">
+                      <input
+                        type="number" min="0"
+                        value={depositAmount}
+                        onChange={(e) => setDepositAmount(e.target.value)}
+                        placeholder="Amount in ETH"
+                        step="0.001"
+                        className="w-full px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setDepositAmount(formatEther(walletBalance))}
+                        className="text-xs text-gray-400 hover:text-orange-500 mt-1"
+                      >
+                        max
+                      </button>
+                    </div>
                     <button
                       onClick={async () => { if (await handleDeposit(depositAmount, vaultEnabled ? depositDest : 'internal')) setDepositAmount(''); }}
                       disabled={loading || !depositAmount || parseFloat(depositAmount) <= 0}
-                      className="bg-green-500 text-white px-6 py-2 rounded-lg hover:bg-green-600 disabled:bg-gray-400 whitespace-nowrap"
+                      className="bg-green-500 text-white px-6 py-2 rounded-lg hover:bg-green-600 disabled:bg-gray-400 whitespace-nowrap self-start"
                     >
                       Deposit
                     </button>
                   </div>
                 </div>
+              )}
+
+              {dwMode === 'withdraw' && (
                 <div>
-                  <label className="block text-sm font-medium mb-2">Withdraw (ETH)</label>
                   {vaultEnabled && (
                     <select
                       value={withdrawSource}
                       onChange={(e) => setWithdrawSource(e.target.value)}
-                      className="w-full mb-2 px-3 py-2 text-sm border rounded-lg bg-white focus:ring-2 focus:ring-orange-500 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%239ca3af%22%20d%3D%22M6%208L1%203h10z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_12px_center] bg-no-repeat pr-8"
+                      className="w-full mb-2 px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                     >
                       <option value="internal">Internal Balance</option>
                       {strategies.map((s) => (
@@ -329,10 +380,10 @@ const App = () => {
                   <div className="flex gap-2">
                     <div className="flex-1 min-w-0">
                       <input
-                        type="number"
+                        type="number" min="0"
                         value={withdrawAmount}
                         onChange={(e) => setWithdrawAmount(e.target.value)}
-                        placeholder="0.001"
+                        placeholder="Amount in ETH"
                         step="0.001"
                         className="w-full px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                       />
@@ -353,54 +404,50 @@ const App = () => {
                     </button>
                   </div>
                 </div>
-              </div>
-            </div>
+              )}
 
-            {/* Move Funds */}
-            {vaultEnabled && (
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                  <ArrowRightLeft size={20} className="text-purple-500" />
-                  Move Funds
-                </h2>
-                <p className="text-xs text-gray-500 mb-3">
-                  Move funds between internal balance and vault strategies.
-                </p>
+              {dwMode === 'move' && vaultEnabled && (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-center">
-                    <select
-                      value={moveFrom}
-                      onChange={(e) => setMoveFrom(e.target.value)}
-                      className="w-full px-3 py-2 text-sm border rounded-lg bg-white focus:ring-2 focus:ring-purple-500 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%239ca3af%22%20d%3D%22M6%208L1%203h10z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_12px_center] bg-no-repeat pr-8"
-                    >
-                      <option value="internal">Internal Balance</option>
-                      {strategies.map((s) => (
-                        <option key={s} value={s}>{strategyLabel(s)}</option>
-                      ))}
-                      {vaultBreakdown.some(e => e.address === ethers.ZeroAddress) && (
-                        <option value={ethers.ZeroAddress}>Vault (Idle)</option>
-                      )}
-                    </select>
-                    <ArrowRightLeft size={16} className="text-gray-400" />
-                    <select
-                      value={moveTo}
-                      onChange={(e) => setMoveTo(e.target.value)}
-                      className="w-full px-3 py-2 text-sm border rounded-lg bg-white focus:ring-2 focus:ring-purple-500 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%239ca3af%22%20d%3D%22M6%208L1%203h10z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_12px_center] bg-no-repeat pr-8"
-                    >
-                      <option value="">Select destination</option>
-                      <option value="internal">Internal Balance</option>
-                      {strategies.map((s) => (
-                        <option key={s} value={s}>{strategyLabel(s)}</option>
-                      ))}
-                    </select>
+                  <div className="flex flex-col sm:grid sm:grid-cols-[1fr_auto_1fr] gap-2 sm:items-center">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1 sm:hidden">From</label>
+                      <select
+                        value={moveFrom}
+                        onChange={(e) => setMoveFrom(e.target.value)}
+                        className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                      >
+                        <option value="internal">Internal Balance</option>
+                        {strategies.map((s) => (
+                          <option key={s} value={s}>{strategyLabel(s)}</option>
+                        ))}
+                        {vaultBreakdown.some(e => e.address === ethers.ZeroAddress) && (
+                          <option value={ethers.ZeroAddress}>Vault (Idle)</option>
+                        )}
+                      </select>
+                    </div>
+                    <ArrowRightLeft size={16} className="text-gray-400 hidden sm:block" />
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1 sm:hidden">To</label>
+                      <select
+                        value={moveTo}
+                        onChange={(e) => setMoveTo(e.target.value)}
+                        className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                      >
+                        <option value="">Select strategy</option>
+                        <option value="internal">Internal Balance</option>
+                        {strategies.map((s) => (
+                          <option key={s} value={s}>{strategyLabel(s)}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <div className="flex-1 min-w-0">
                       <input
-                        type="number"
+                        type="number" min="0"
                         value={moveAmount}
                         onChange={(e) => setMoveAmount(e.target.value)}
-                        placeholder="0.001"
+                        placeholder="Amount in ETH"
                         step="0.001"
                         className="w-full px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                       />
@@ -439,17 +486,23 @@ const App = () => {
                     </button>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Vault Management */}
             <div className="bg-white rounded-lg shadow-lg p-6">
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <TrendingUp size={20} className="text-purple-500" />
-                Vault Management
-              </h2>
-              {contractData.taxVault && contractData.taxVault !== '0x0000000000000000000000000000000000000000' ? (
-                <div className="space-y-4">
+              <button
+                onClick={() => setVaultMgmtOpen(!vaultMgmtOpen)}
+                className="w-full flex items-center justify-between"
+              >
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <TrendingUp size={20} className="text-purple-500" />
+                  Vault Management
+                </h2>
+                <ChevronDown size={20} className={`text-gray-400 transition-transform ${vaultMgmtOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {vaultMgmtOpen && (contractData.taxVault && contractData.taxVault !== '0x0000000000000000000000000000000000000000' ? (
+                <div className="mt-4 space-y-4">
                   {accountData.usesVault ? (
                     <>
                       <p className="text-sm text-gray-600">
@@ -538,10 +591,10 @@ const App = () => {
                   )}
                 </div>
               ) : (
-                <div className="bg-gray-50 p-4 rounded-lg text-center text-gray-600">
+                <div className="mt-4 bg-gray-50 p-4 rounded-lg text-center text-gray-600">
                   <p className="text-sm">Vault not configured for this contract</p>
                 </div>
-              )}
+              ))}
             </div>
 
             {/* Owner Actions */}
@@ -556,7 +609,7 @@ const App = () => {
                     <label className="block text-sm font-medium mb-2">Set New Price (ETH)</label>
                     <div className="flex gap-2">
                       <input
-                        type="number"
+                        type="number" min="0"
                         value={newPrice}
                         onChange={(e) => setNewPrice(e.target.value)}
                         placeholder="0.002"
@@ -590,7 +643,7 @@ const App = () => {
                   <div>
                     <label className="block text-sm font-medium mb-2">Your New Price (ETH)</label>
                     <input
-                      type="number"
+                      type="number" min="0"
                       value={buyPrice}
                       onChange={(e) => setBuyPrice(e.target.value)}
                       placeholder="0.002"
@@ -615,12 +668,18 @@ const App = () => {
             {/* Earmark System */}
             {isOwner && (
               <div className="bg-white rounded-lg shadow-lg p-6 lg:col-span-2">
-                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                  <Gift size={20} className="text-purple-500" />
-                  Earmark System
-                </h2>
-                {earmark.active ? (
-                  <div className="space-y-4">
+                <button
+                  onClick={() => setEarmarkOpen(!earmarkOpen)}
+                  className="w-full flex items-center justify-between"
+                >
+                  <h2 className="text-xl font-bold flex items-center gap-2">
+                    <Gift size={20} className="text-purple-500" />
+                    Earmark System
+                  </h2>
+                  <ChevronDown size={20} className={`text-gray-400 transition-transform ${earmarkOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {earmarkOpen && (earmark.active ? (
+                  <div className="mt-4 space-y-4">
                     <div className="bg-purple-50 p-4 rounded-lg">
                       <div className="text-sm text-gray-600">Active Earmark</div>
                       <div className="font-mono text-sm mb-2 flex items-center gap-1">
@@ -640,21 +699,24 @@ const App = () => {
                     </button>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="mt-4 space-y-4">
                     <div>
                       <label className="block text-sm font-medium mb-2">Receiver Address</label>
                       <input
                         type="text"
                         value={earmarkReceiver}
-                        onChange={(e) => setEarmarkReceiver(e.target.value)}
-                        placeholder="0x..."
-                        className="w-full px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 font-mono"
+                        onChange={(e) => setEarmarkReceiver(e.target.value.trim())}
+                        placeholder="0x... or name.eth"
+                        className={`w-full px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 font-mono ${earmarkReceiver && !isValidRecipient(earmarkReceiver) ? 'border-red-400' : ''}`}
                       />
+                      {earmarkReceiver && !isValidRecipient(earmarkReceiver) && (
+                        <p className="text-xs text-red-500 mt-1">Enter a valid address (0x...) or ENS name (name.eth)</p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-2">Gift deposit from your balance (ETH, optional)</label>
                       <input
-                        type="number"
+                        type="number" min="0"
                         value={earmarkDeposit}
                         onChange={(e) => setEarmarkDeposit(e.target.value)}
                         placeholder="0.001"
@@ -669,13 +731,13 @@ const App = () => {
                           setEarmarkDeposit('');
                         }
                       }}
-                      disabled={loading || !earmarkReceiver}
+                      disabled={loading || !isValidRecipient(earmarkReceiver)}
                       className="bg-purple-500 text-white px-6 py-2 rounded-lg hover:bg-purple-600 disabled:bg-gray-400"
                     >
                       Earmark NFT
                     </button>
                   </div>
-                )}
+                ))}
               </div>
             )}
 
@@ -693,7 +755,7 @@ const App = () => {
                   <div>
                     <label className="block text-sm font-medium mb-2">Your New Price (ETH)</label>
                     <input
-                      type="number"
+                      type="number" min="0"
                       value={claimPrice}
                       onChange={(e) => setClaimPrice(e.target.value)}
                       placeholder="0.002"
@@ -708,6 +770,33 @@ const App = () => {
                   >
                     Claim Earmarked NFT
                   </button>
+                </div>
+              </div>
+            )}
+            {/* Top Taxpayers */}
+            {topTaxpayers.length > 0 && (
+              <div className="bg-white rounded-lg shadow-lg p-6 lg:col-span-2">
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                  <TrendingUp size={20} className="text-orange-500" />
+                  Patty Daddies
+                </h2>
+                <div className="space-y-2">
+                  {topTaxpayers.map((entry, i) => (
+                    <div key={entry.address} className="flex items-center gap-3">
+                      <div className="w-7 text-center font-bold text-sm shrink-0">
+                        {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-gray-400">{i + 1}</span>}
+                      </div>
+                      <div className="flex-1 min-w-0 flex items-center justify-between gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <ExplorerLink address={entry.address}>
+                            <span className="font-mono text-sm">{formatAddress(entry.address)}</span>
+                          </ExplorerLink>
+                          {entry.address === account && <span className="text-xs text-green-600 font-semibold shrink-0">You</span>}
+                        </div>
+                        <span className="font-mono font-bold text-sm text-orange-600 shrink-0">{formatEther(entry.total)} ETH</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
