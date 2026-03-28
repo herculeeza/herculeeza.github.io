@@ -165,7 +165,7 @@ const App = () => {
         const shortfall = currentPrice - existing - deposit;
         return { text: `need ${parseFloat(ethers.formatEther(shortfall)).toFixed(6)} more ETH to buy`, warn: true };
       }
-      if (remaining === 0n) return { text: 'no funds left for taxes after purchase', warn: true };
+      if (remaining === 0n) return { text: 'no funds left after purchase', warn: true };
       const taxPerSec = price * rate;
       if (taxPerSec === 0n) return { text: '', warn: false };
       const seconds = remaining * (10n ** 18n) / taxPerSec;
@@ -175,7 +175,7 @@ const App = () => {
       else if (days < 30) { const w = Math.floor(days / 7); duration = `~${w} week${w !== 1 ? 's' : ''}`; }
       else if (days < 365) { const m = Math.floor(days / 30); duration = `~${m} month${m !== 1 ? 's' : ''}`; }
       else { const y = Math.round(days / 365); duration = `~${y} year${y !== 1 ? 's' : ''}`; }
-      return { text: `covers ${duration} of taxes at this price`, warn: false };
+      return { text: `covers ${duration} at this price`, warn: false };
     } catch { return { text: '', warn: false }; }
   })();
 
@@ -255,7 +255,7 @@ const App = () => {
               <p className="text-sm leading-relaxed">
                 <strong>HARBURGER</strong> is a well-done implementation of Harberger taxation—an idea from economist Arnold Harberger in 1962, popularized by Weyl & Posner's <em>Radical Markets</em>.
                 Owners self-assess their price and pay continuous tax on it. Anyone can buy at the declared price. Set it too low, someone snatches your lunch. Too high,
-                and the tax eats you alive. It's a rare medium for allocative efficiency.
+                and the taxes eat you alive. It's a rare medium for allocative efficiency.
               </p>
               <p className="text-sm leading-relaxed">
                 <strong>For the first time ever in a Harberger implementation</strong> earn yield on your tax deposit instead of letting it sit idle.
@@ -376,11 +376,11 @@ const App = () => {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-gray-50 rounded-lg p-3">
-                <div className="text-xs text-gray-500">Tax Rate</div>
+                <div className="text-xs text-gray-500">Patronage Rate</div>
                 <div className="font-bold font-mono mt-0.5">{annualTaxPercent(contractData.taxRate)}%<span className="text-xs font-normal text-gray-400"> /yr</span></div>
               </div>
               <div className="bg-gray-50 rounded-lg p-3">
-                <div className="text-xs text-gray-500">Tax Receiver</div>
+                <div className="text-xs text-gray-500">Beneficiary</div>
                 <div className="mt-0.5">
                   <ExplorerLink address={contractData.taxReceiver}>
                     <span className="font-mono text-sm font-medium">{formatAddress(contractData.taxReceiver)}</span>
@@ -398,7 +398,7 @@ const App = () => {
                 Patty Daddies
               </h2>
               <div className="flex items-center justify-between mb-4">
-                <p className="text-xs text-gray-400">Ranked by total taxes paid</p>
+                <p className="text-xs text-gray-400">Ranked by total patronage</p>
                 {totalAllTaxesPaid !== '0' && (
                   <span className="text-xs text-gray-400">Total: <span className="font-mono font-semibold text-gray-800">{formatEther(totalAllTaxesPaid)} ETH</span></span>
                 )}
@@ -463,7 +463,7 @@ const App = () => {
               )}
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-gray-50 rounded-lg p-3">
-                  <div className="text-xs text-gray-500">Taxes Paid</div>
+                  <div className="text-xs text-gray-500">Patronage Paid</div>
                   <div className="font-bold font-mono mt-0.5 text-green-600">
                     {formatEther((BigInt(accountData.totalTaxesPaid || '0') + BigInt(accountData.taxesOwed || '0') + BigInt(accountData.debt || '0')).toString())} ETH
                   </div>
@@ -702,7 +702,7 @@ const App = () => {
                   {accountData.usesVault ? (
                     <>
                       <p className="text-sm text-gray-600">
-                        Taxes will be paid from your vault balance when possible.
+                        Patronage will be paid from your vault balance when possible.
                       </p>
                       {/* Strategy cards */}
                       <div className="space-y-2">
