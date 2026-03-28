@@ -3,7 +3,7 @@
   "harburger": "0x9b9178149fF9211E1c521A3055CcE6a69A9756B5",
   "taxVault": "0x5aE64F88F4157c88B1Ff534a7d51cFF4a70Ef63e",
   "aaveStrategy": "0xc54d5DE44b4DC230365ad9f79BEf56c74e6fb50f",
-  "compoundStrategy": null,
+  "compoundStrategy": "0x2331EFd34Ff98ee42E0fe1c10D794016dfD9d628",
   "configuration": {
     "nftName": "Harburger NFT",
     "nftSymbol": "HBRG",

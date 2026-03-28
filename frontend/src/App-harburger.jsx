@@ -577,7 +577,7 @@ const App = () => {
                               <div className="flex items-center justify-between">
                                 <div>
                                   <div className="text-sm font-semibold text-purple-700">
-                                    Aave V3 WETH
+                                    {strategyLabel(s)}
                                   </div>
                                   <div className="text-xs text-gray-500 flex items-center gap-1">
                                     <ExplorerLink address={s}>
@@ -632,7 +632,7 @@ const App = () => {
                             <div className="text-xs font-semibold text-gray-500 uppercase">Available Strategies</div>
                             {strategies.map((s) => (
                               <div key={s} className="flex items-center justify-between text-sm">
-                                <span className="text-purple-700 font-medium">Aave V3 WETH</span>
+                                <span className="text-purple-700 font-medium">{strategyLabel(s)}</span>
                                 <span className="text-xs text-green-600">Variable APY</span>
                               </div>
                             ))}

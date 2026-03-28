@@ -181,19 +181,22 @@ export function useHarburger() {
 
           // Resolve human-readable names for strategies
           const names = {};
-          for (const addr of strats) {
+          await Promise.all(strats.map(async (addr) => {
+            const fallback = `Strategy (${addr.slice(0, 6)}…${addr.slice(-4)})`;
             try {
-              const s = new ethers.Contract(addr, [
-                "function aavePool() view returns (address)",
-                "function comet() view returns (address)",
-              ], signer);
-              try { await s.aavePool(); names[addr] = 'Aave V3 WETH'; continue; } catch { /* not Aave */ }
-              try { await s.comet(); names[addr] = 'Compound V3 WETH'; continue; } catch { /* not Compound */ }
-              names[addr] = `Strategy (${addr.slice(0, 6)}…${addr.slice(-4)})`;
-            } catch {
-              names[addr] = `Strategy (${addr.slice(0, 6)}…${addr.slice(-4)})`;
-            }
-          }
+              const aave = new ethers.Contract(addr, ["function aavePool() view returns (address)"], signer);
+              await aave.aavePool();
+              names[addr] = 'Aave V3 WETH';
+              return;
+            } catch { /* not Aave */ }
+            try {
+              const comp = new ethers.Contract(addr, ["function comet() view returns (address)"], signer);
+              await comp.comet();
+              names[addr] = 'Compound V3 WETH';
+              return;
+            } catch { /* not Compound */ }
+            names[addr] = fallback;
+          }));
           setStrategyNames(names);
         }
       } catch (e) { console.error('Vault setup error:', e); }
@@ -270,7 +273,7 @@ export function useHarburger() {
       // Public RPCs cap eth_getLogs to ~50k blocks per request.
       // Scan back in chunks — 3 chunks covers ~3 weeks on Sepolia/mainnet.
       const CHUNK = 49_000;
-      const MAX_CHUNKS = 3;
+      const MAX_CHUNKS = 5;
       let events = [];
       let to = currentBlock;
       for (let i = 0; i < MAX_CHUNKS && to > 0; i++) {
