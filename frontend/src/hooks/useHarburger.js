@@ -266,10 +266,20 @@ export function useHarburger() {
     try {
       const provider = c.runner?.provider || c.runner;
       const currentBlock = await provider.getBlockNumber();
-      // Public RPCs limit eth_getLogs range; scan last ~100k blocks
-      const fromBlock = Math.max(0, currentBlock - 100_000);
       const filter = c.filters.TaxPaid();
-      const events = await c.queryFilter(filter, fromBlock, 'latest');
+      // Public RPCs cap eth_getLogs to ~50k blocks per request.
+      // Scan back in chunks — 3 chunks covers ~3 weeks on Sepolia/mainnet.
+      const CHUNK = 49_000;
+      const MAX_CHUNKS = 3;
+      let events = [];
+      let to = currentBlock;
+      for (let i = 0; i < MAX_CHUNKS && to > 0; i++) {
+        const from = Math.max(0, to - CHUNK);
+        const chunk = await c.queryFilter(filter, from, to);
+        events = events.concat(chunk);
+        if (from === 0) break;
+        to = from - 1;
+      }
       const totals = {};
       for (const e of events) {
         const payer = e.args[0];
