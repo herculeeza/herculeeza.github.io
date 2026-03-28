@@ -1,4 +1,4 @@
-# Harburger
+# HARBURGER
 
 Harberger tax NFT. You buy the burger, set your own price, and pay continuous tax on that price. Anyone can force-buy it from you at the price you set. If you can't cover your taxes, anyone can take it for free. Deposited funds can optionally earn yield through Aave or Compound.
 
