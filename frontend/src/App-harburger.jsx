@@ -101,7 +101,6 @@ const App = () => {
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <h1 className="text-xl sm:text-3xl font-bold text-orange-600 whitespace-nowrap">🍔 HARBURGER</h1>
-              <p className="text-xs sm:text-base text-gray-600 hidden sm:block">A Deliciously Taxing NFT</p>
             </div>
             {!account ? (
               <button
@@ -141,12 +140,12 @@ const App = () => {
           {aboutOpen && (
             <div className="px-6 pb-8 max-w-2xl mx-auto text-gray-700 space-y-5">
               <p className="text-sm leading-relaxed">
-                <strong>HARBURGER</strong> is a well-done implementation of Harberger taxation — an idea from economist Arnold Harberger in 1962, popularized by Weyl & Posner's <em>Radical Markets</em>.
+                <strong>HARBURGER</strong> is a well-done implementation of Harberger taxation—an idea from economist Arnold Harberger in 1962, popularized by Weyl & Posner's <em>Radical Markets</em>.
                 Owners self-assess their price and pay continuous tax on it. Anyone can buy at the declared price. Set it too low, someone snatches your lunch. Too high,
                 and the tax eats you alive. It's a rare medium for allocative efficiency.
               </p>
               <p className="text-sm leading-relaxed">
-                <strong>For the first time ever in a Harberger implementation:</strong> earn yield on your tax deposit instead of letting it sit idle.
+                <strong>For the first time ever in a Harberger implementation</strong> earn yield on your tax deposit instead of letting it sit idle.
               </p>
               <div className="text-xs text-gray-400 text-center space-y-1.5 pt-2">
                 <p>
@@ -179,20 +178,13 @@ const App = () => {
         )}
 
         {showLoading && (
-          <div className="fixed bottom-6 right-6 z-50 bg-white border border-yellow-300 text-yellow-800 px-5 py-4 rounded-xl shadow-lg flex items-center gap-4 overflow-hidden toast-enter max-w-sm">
-            <div className="text-3xl flex flex-col items-center shrink-0 burger-stack">
-              <span className="burger-layer" style={{ animationDelay: '0s' }}>🍞</span>
-              <span className="burger-layer" style={{ animationDelay: '0.15s' }}>🥬</span>
-              <span className="burger-layer" style={{ animationDelay: '0.3s' }}>🧀</span>
-              <span className="burger-layer" style={{ animationDelay: '0.45s' }}>🥩</span>
-              <span className="burger-layer" style={{ animationDelay: '0.6s' }}>🍞</span>
-            </div>
-            <div className="min-w-0">
-              <div className="font-bold text-sm">Grilling your transaction...</div>
-              <div className="text-xs text-yellow-700 mt-1">Confirm in wallet & wait for it to cook</div>
-              <div className="mt-2 h-2 bg-yellow-200 rounded-full overflow-hidden">
-                <div className="h-full bg-orange-400 rounded-full burger-progress" />
-              </div>
+          <div className="fixed bottom-6 right-6 z-50 bg-white/90 border border-yellow-300 rounded-xl shadow-lg p-3 toast-enter">
+            <div className="text-4xl flex flex-col-reverse items-center burger-stack">
+              <span className="burger-layer-up" style={{ animationDelay: '0s' }}>🍞</span>
+              <span className="burger-layer-up" style={{ animationDelay: '0.2s' }}>🥩</span>
+              <span className="burger-layer-up" style={{ animationDelay: '0.4s' }}>🧀</span>
+              <span className="burger-layer-up" style={{ animationDelay: '0.6s' }}>🥬</span>
+              <span className="burger-layer-up" style={{ animationDelay: '0.8s' }}>🍞</span>
             </div>
           </div>
         )}
