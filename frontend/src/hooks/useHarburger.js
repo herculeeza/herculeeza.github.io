@@ -305,13 +305,16 @@ export function useHarburger() {
       }
       // Collect unique addresses
       const payers = [...new Set(events.map(e => e.args[0]))];
-      // Read on-chain totals (totalTaxesPaid + debt = total taxes charged)
-      const accountInfos = await Promise.all(payers.map(addr => c.accounts(addr)));
+      // Read on-chain totals: settled + debt + pending unsettled
+      const [accountInfos, pendingTaxes] = await Promise.all([
+        Promise.all(payers.map(addr => c.accounts(addr))),
+        Promise.all(payers.map(addr => c.calculateTaxes(addr))),
+      ]);
       let allTotal = 0n;
       const entries = [];
       for (let i = 0; i < payers.length; i++) {
         const info = accountInfos[i];
-        const total = info.totalTaxesPaid + info.debt;
+        const total = info.totalTaxesPaid + info.debt + pendingTaxes[i];
         if (total === 0n) continue;
         allTotal += total;
         entries.push({ address: payers[i], total: total.toString() });
