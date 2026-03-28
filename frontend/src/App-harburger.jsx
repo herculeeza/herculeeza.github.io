@@ -81,33 +81,60 @@ const App = () => {
   const [buyModalOpen, setBuyModalOpen] = useState(false);
   const [buyDeposit, setBuyDeposit] = useState('');
 
-  // How long the deposit covers taxes at the new price
+  // Suggested deposit: purchasePrice + 10% of newPrice - existing balance
+  const suggestedDeposit = (() => {
+    try {
+      const price = ethers.parseEther(buyPrice || '0');
+      if (price === 0n) return '';
+      const cp = BigInt(contractData.currentPrice || '0');
+      const tenPct = price / 10n;
+      const total = cp + tenPct;
+      const existing = BigInt(accountData.netBalance || '0');
+      const needed = total > existing ? total - existing : 0n;
+      return needed > 0n ? parseFloat(ethers.formatEther(needed)).toFixed(6) : '';
+    } catch { return ''; }
+  })();
+
+  // Sync deposit to suggestion when price changes
+  useEffect(() => {
+    if (buyModalOpen) setBuyDeposit(suggestedDeposit);
+  }, [buyPrice]);
+
+  // How long funds last after buying: (balance + deposit - purchasePrice) / taxRate
   const depositCoverage = (() => {
     try {
       const rate = BigInt(contractData.taxRate || '0');
-      if (rate === 0n) return '';
+      if (rate === 0n) return { text: '', warn: false };
       const price = ethers.parseEther(buyPrice || '0');
-      if (price === 0n) return '';
-      const deposit = ethers.parseEther(buyDeposit || '0');
+      if (price === 0n) return { text: '', warn: false };
+      const deposit = buyDeposit && parseFloat(buyDeposit) > 0 ? ethers.parseEther(buyDeposit) : 0n;
       const existing = BigInt(accountData.netBalance || '0');
-      // After buying, balance = existing + deposit - currentPrice
       const currentPrice = BigInt(contractData.currentPrice || '0');
-      const balanceAfterBuy = existing + deposit - currentPrice;
-      if (balanceAfterBuy <= 0n) return '';
-      // taxPerSecond = price * rate / 1e18
+      const remaining = existing + deposit - currentPrice;
+      if (remaining < 0n) {
+        const shortfall = currentPrice - existing - deposit;
+        return { text: `need ${parseFloat(ethers.formatEther(shortfall)).toFixed(6)} more ETH to buy`, warn: true };
+      }
+      if (remaining === 0n) return { text: 'no funds left for taxes after purchase', warn: true };
       const taxPerSec = price * rate;
-      if (taxPerSec === 0n) return '';
-      // seconds covered = balanceAfterBuy * 1e18 / taxPerSec
-      const seconds = balanceAfterBuy * (10n ** 18n) / taxPerSec;
+      if (taxPerSec === 0n) return { text: '', warn: false };
+      const seconds = remaining * (10n ** 18n) / taxPerSec;
       const days = Number(seconds) / 86400;
-      if (days < 1) return 'less than a day';
-      if (days < 30) return `~${Math.floor(days)} day${Math.floor(days) !== 1 ? 's' : ''}`;
-      const months = days / 30;
-      if (months < 12) return `~${Math.floor(months)} month${Math.floor(months) !== 1 ? 's' : ''}`;
-      const years = months / 12;
-      return `~${years.toFixed(1)} year${years >= 1.5 ? 's' : ''}`;
-    } catch { return ''; }
+      let duration;
+      if (days < 7) duration = `~${Math.max(1, Math.floor(days))} day${Math.floor(days) !== 1 ? 's' : ''}`;
+      else if (days < 30) { const w = Math.floor(days / 7); duration = `~${w} week${w !== 1 ? 's' : ''}`; }
+      else if (days < 365) { const m = Math.floor(days / 30); duration = `~${m} month${m !== 1 ? 's' : ''}`; }
+      else { const y = Math.round(days / 365); duration = `~${y} year${y !== 1 ? 's' : ''}`; }
+      return { text: `covers ${duration} of taxes at this price`, warn: false };
+    } catch { return { text: '', warn: false }; }
   })();
+
+  const balanceOf = (addr) => {
+    let wei;
+    if (addr === 'internal') wei = accountData.rawBalance;
+    else { const entry = vaultBreakdown.find(e => e.address === addr); wei = entry ? entry.balance : '0'; }
+    try { return parseFloat(ethers.formatEther(wei.toString())).toFixed(4); } catch { return '0.0000'; }
+  };
 
   const isValidRecipient = (val) => {
     if (!val) return false;
@@ -224,13 +251,13 @@ const App = () => {
           <div className="bg-white rounded-lg shadow-lg p-6">
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
               <Tag size={20} className="text-orange-500" />
-              Harburger
+              HARBURGER
             </h2>
-            <div className="bg-orange-50 rounded-lg p-4 mb-4">
-              <div className="text-sm text-orange-700">Current Price</div>
+            <div className="bg-purple-50 rounded-lg p-4 mb-4">
+              <div className="text-sm text-purple-700">Current Price</div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="font-bold text-2xl text-orange-600 font-mono">
+                  <div className="font-bold text-2xl text-purple-600 font-mono">
                     {formatEther(contractData.currentPrice)} ETH
                   </div>
                   {isOwner && !editingPrice && (
@@ -247,17 +274,7 @@ const App = () => {
                   <button
                     onClick={() => {
                       const cp = BigInt(contractData.currentPrice || '0');
-                      const sugPrice = cp > 0n ? parseFloat(ethers.formatEther(cp * 2n)).toString() : '';
-                      setBuyPrice(sugPrice);
-                      // Pre-fill deposit: 10% of suggested price + purchase cost - existing balance
-                      try {
-                        const priceWei = ethers.parseEther(sugPrice || '0');
-                        const tenPct = priceWei / 10n;
-                        const total = cp + tenPct;
-                        const existing = BigInt(accountData.netBalance || '0');
-                        const needed = total > existing ? total - existing : 0n;
-                        setBuyDeposit(needed > 0n ? parseFloat(ethers.formatEther(needed)).toFixed(6) : '');
-                      } catch { setBuyDeposit(''); }
+                      setBuyPrice(cp > 0n ? parseFloat(ethers.formatEther(cp * 2n)).toString() : '');
                       setBuyModalOpen(true);
                     }}
                     disabled={loading}
@@ -327,7 +344,7 @@ const App = () => {
               <div className="flex items-center justify-between mb-4">
                 <p className="text-xs text-gray-400">Ranked by total taxes paid</p>
                 {totalAllTaxesPaid !== '0' && (
-                  <span className="text-xs text-gray-400">Total: <span className="font-mono font-semibold text-green-600">{formatEther(totalAllTaxesPaid)} ETH</span></span>
+                  <span className="text-xs text-gray-400">Total: <span className="font-mono font-semibold text-gray-800">{formatEther(totalAllTaxesPaid)} ETH</span></span>
                 )}
               </div>
               <div className="space-y-2">
@@ -343,7 +360,7 @@ const App = () => {
                         </ExplorerLink>
                         {entry.address === account && <span className="text-xs text-green-600 font-semibold shrink-0">You</span>}
                       </div>
-                      <span className="font-mono font-bold text-sm text-green-600 shrink-0">{formatEther(entry.total)} ETH</span>
+                      <span className="font-mono font-bold text-sm text-purple-600 shrink-0">{formatEther(entry.total)} ETH</span>
                     </div>
                   </div>
                 ))}
@@ -444,9 +461,9 @@ const App = () => {
                       onChange={(e) => setDepositDest(e.target.value)}
                       className="w-full mb-2 px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                     >
-                      <option value="internal">Internal Balance</option>
+                      <option value="internal">Internal ({balanceOf('internal')} ETH)</option>
                       {strategies.map((s) => (
-                        <option key={s} value={s}>{strategyLabel(s)}</option>
+                        <option key={s} value={s}>{strategyLabel(s)} ({balanceOf(s)} ETH)</option>
                       ))}
                     </select>
                   )}
@@ -487,12 +504,12 @@ const App = () => {
                       onChange={(e) => setWithdrawSource(e.target.value)}
                       className="w-full mb-2 px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                     >
-                      <option value="internal">Internal Balance</option>
+                      <option value="internal">Internal ({balanceOf('internal')} ETH)</option>
                       {strategies.map((s) => (
-                        <option key={s} value={s}>{strategyLabel(s)}</option>
+                        <option key={s} value={s}>{strategyLabel(s)} ({balanceOf(s)} ETH)</option>
                       ))}
                       {vaultBreakdown.some(e => e.address === ethers.ZeroAddress) && (
-                        <option value={ethers.ZeroAddress}>Vault (Idle)</option>
+                        <option value={ethers.ZeroAddress}>Idle ({balanceOf(ethers.ZeroAddress)} ETH)</option>
                       )}
                     </select>
                   )}
@@ -535,12 +552,12 @@ const App = () => {
                         onChange={(e) => setMoveFrom(e.target.value)}
                         className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                       >
-                        <option value="internal">Internal Balance</option>
+                        <option value="internal">Internal ({balanceOf('internal')} ETH)</option>
                         {strategies.map((s) => (
-                          <option key={s} value={s}>{strategyLabel(s)}</option>
+                          <option key={s} value={s}>{strategyLabel(s)} ({balanceOf(s)} ETH)</option>
                         ))}
                         {vaultBreakdown.some(e => e.address === ethers.ZeroAddress) && (
-                          <option value={ethers.ZeroAddress}>Vault (Idle)</option>
+                          <option value={ethers.ZeroAddress}>Idle ({balanceOf(ethers.ZeroAddress)} ETH)</option>
                         )}
                       </select>
                     </div>
@@ -552,10 +569,10 @@ const App = () => {
                         onChange={(e) => setMoveTo(e.target.value)}
                         className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                       >
-                        <option value="">Select strategy</option>
-                        <option value="internal">Internal Balance</option>
+                        <option value="">Select destination</option>
+                        <option value="internal">Internal ({balanceOf('internal')} ETH)</option>
                         {strategies.map((s) => (
-                          <option key={s} value={s}>{strategyLabel(s)}</option>
+                          <option key={s} value={s}>{strategyLabel(s)} ({balanceOf(s)} ETH)</option>
                         ))}
                       </select>
                     </div>
@@ -614,11 +631,14 @@ const App = () => {
                 onClick={() => setVaultMgmtOpen(!vaultMgmtOpen)}
                 className="w-full flex items-center justify-between"
               >
-                <h2 className="text-xl font-bold flex items-center gap-2">
-                  <TrendingUp size={20} className="text-purple-500" />
-                  Vault Management
-                </h2>
-                <ChevronDown size={20} className={`text-gray-400 transition-transform ${vaultMgmtOpen ? 'rotate-180' : ''}`} />
+                <div>
+                  <h2 className="text-xl font-bold flex items-center gap-2">
+                    <TrendingUp size={20} className="text-purple-500" />
+                    Vault Management
+                  </h2>
+                  <p className="text-xs text-gray-400 mt-0.5 text-left">Enable or disable strategies</p>
+                </div>
+                <ChevronDown size={20} className={`text-gray-400 transition-transform shrink-0 ${vaultMgmtOpen ? 'rotate-180' : ''}`} />
               </button>
               {vaultMgmtOpen && (contractData.taxVault && contractData.taxVault !== '0x0000000000000000000000000000000000000000' ? (
                 <div className="mt-4 space-y-4">
@@ -717,80 +737,85 @@ const App = () => {
             </div>
 
             {/* Earmark System */}
-            {isOwner && (
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                <button
-                  onClick={() => setEarmarkOpen(!earmarkOpen)}
-                  className="w-full flex items-center justify-between"
-                >
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <button
+                onClick={() => setEarmarkOpen(!earmarkOpen)}
+                className="w-full flex items-center justify-between"
+              >
+                <div>
                   <h2 className="text-xl font-bold flex items-center gap-2">
                     <Gift size={20} className="text-purple-500" />
-                    Earmark System
+                    Earmark
                   </h2>
-                  <ChevronDown size={20} className={`text-gray-400 transition-transform ${earmarkOpen ? 'rotate-180' : ''}`} />
-                </button>
-                {earmarkOpen && (earmark.active ? (
-                  <div className="mt-4 space-y-4">
-                    <div className="bg-purple-50 p-4 rounded-lg">
-                      <div className="text-sm text-gray-600">Active Earmark</div>
-                      <div className="font-mono text-sm mb-2 flex items-center gap-1">
-                        To:{' '}
-                        <ExplorerLink address={earmark.receiver}>
-                          <span>{formatAddress(earmark.receiver)}</span>
-                        </ExplorerLink>
-                      </div>
-                      <div className="font-bold">Deposit: {formatEther(earmark.depositAmount)} ETH</div>
+                  <p className="text-xs text-gray-400 mt-0.5 text-left">Reserve HARBURGER for someone as a gift</p>
+                </div>
+                <ChevronDown size={20} className={`text-gray-400 transition-transform shrink-0 ${earmarkOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {earmarkOpen && (isOwner ? (earmark.active ? (
+                <div className="mt-4 space-y-4">
+                  <div className="bg-purple-50 p-4 rounded-lg">
+                    <div className="text-sm text-gray-600">Active Earmark</div>
+                    <div className="font-mono text-sm mb-2 flex items-center gap-1">
+                      To:{' '}
+                      <ExplorerLink address={earmark.receiver}>
+                        <span>{formatAddress(earmark.receiver)}</span>
+                      </ExplorerLink>
                     </div>
-                    <button
-                      onClick={handleCancelEarmark}
-                      disabled={loading}
-                      className="bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600 disabled:bg-gray-400"
-                    >
-                      Cancel Earmark
-                    </button>
+                    <div className="font-bold">Deposit: {formatEther(earmark.depositAmount)} ETH</div>
                   </div>
-                ) : (
-                  <div className="mt-4 space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Receiver Address</label>
-                      <input
-                        type="text"
-                        value={earmarkReceiver}
-                        onChange={(e) => setEarmarkReceiver(e.target.value.trim())}
-                        placeholder="0x... or name.eth"
-                        className={`w-full px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 font-mono ${earmarkReceiver && !isValidRecipient(earmarkReceiver) ? 'border-red-400' : ''}`}
-                      />
-                      {earmarkReceiver && !isValidRecipient(earmarkReceiver) && (
-                        <p className="text-xs text-red-500 mt-1">Enter a valid address (0x...) or ENS name (name.eth)</p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Gift deposit from your balance (ETH, optional)</label>
-                      <input
-                        type="number" min="0"
-                        value={earmarkDeposit}
-                        onChange={(e) => setEarmarkDeposit(e.target.value)}
-                        placeholder="0.001"
-                        step="0.001"
-                        className="w-full px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                      />
-                    </div>
-                    <button
-                      onClick={async () => {
-                        if (await handleEarmark(earmarkReceiver, earmarkDeposit)) {
-                          setEarmarkReceiver('');
-                          setEarmarkDeposit('');
-                        }
-                      }}
-                      disabled={loading || !isValidRecipient(earmarkReceiver)}
-                      className="bg-purple-500 text-white px-6 py-2 rounded-lg hover:bg-purple-600 disabled:bg-gray-400"
-                    >
-                      Earmark NFT
-                    </button>
+                  <button
+                    onClick={handleCancelEarmark}
+                    disabled={loading}
+                    className="bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600 disabled:bg-gray-400"
+                  >
+                    Cancel Earmark
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Receiver Address</label>
+                    <input
+                      type="text"
+                      value={earmarkReceiver}
+                      onChange={(e) => setEarmarkReceiver(e.target.value.trim())}
+                      placeholder="0x... or name.eth"
+                      className={`w-full px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 font-mono ${earmarkReceiver && !isValidRecipient(earmarkReceiver) ? 'border-red-400' : ''}`}
+                    />
+                    {earmarkReceiver && !isValidRecipient(earmarkReceiver) && (
+                      <p className="text-xs text-red-500 mt-1">Enter a valid address (0x...) or ENS name (name.eth)</p>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Gift deposit from your balance (ETH, optional)</label>
+                    <input
+                      type="number" min="0"
+                      value={earmarkDeposit}
+                      onChange={(e) => setEarmarkDeposit(e.target.value)}
+                      placeholder="0.001"
+                      step="0.001"
+                      className="w-full px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    />
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (await handleEarmark(earmarkReceiver, earmarkDeposit)) {
+                        setEarmarkReceiver('');
+                        setEarmarkDeposit('');
+                      }
+                    }}
+                    disabled={loading || !isValidRecipient(earmarkReceiver)}
+                    className="bg-purple-500 text-white px-6 py-2 rounded-lg hover:bg-purple-600 disabled:bg-gray-400"
+                  >
+                    Earmark HARBURGER
+                  </button>
+                </div>
+              )) : (
+                <div className="mt-4 bg-gray-50 p-4 rounded-lg text-center">
+                  <p className="text-sm text-gray-400">Only the current owner can earmark HARBURGER</p>
+                </div>
+              ))}
+            </div>
 
             {/* Buy NFT Modal */}
             {buyModalOpen && !isOwner && (
@@ -813,16 +838,16 @@ const App = () => {
                       value={buyPrice}
                       onChange={(e) => setBuyPrice(e.target.value)}
                       step="0.001"
-                      className={`w-full px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 ${buyPrice && parseFloat(buyPrice) > 0 && ethers.parseEther(buyPrice) <= BigInt(contractData.currentPrice || '0') ? 'border-red-400' : ''}`}
+                      className="w-full px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                       autoFocus
                     />
-                    {buyPrice && parseFloat(buyPrice) > 0 && (() => { try { return ethers.parseEther(buyPrice) <= BigInt(contractData.currentPrice || '0'); } catch { return false; } })() && (
-                      <p className="text-xs text-red-500 mt-1">Must be greater than current price</p>
-                    )}
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium mb-1">Deposit Amount (ETH)</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-sm font-medium">Deposit Amount (ETH)</label>
+                      <span className="text-xs text-gray-500">Balance: <span className="font-mono font-medium text-gray-700">{formatEther(accountData.netBalance)} ETH</span></span>
+                    </div>
                     <input
                       type="number" min="0"
                       value={buyDeposit}
@@ -830,12 +855,9 @@ const App = () => {
                       step="0.001"
                       className="w-full px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                     />
-                    <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
-                      <span>Your balance: <span className="font-mono font-medium text-gray-700">{formatEther(accountData.netBalance)} ETH</span></span>
-                      {depositCoverage && (
-                        <span className="text-orange-600 font-medium">Covers {depositCoverage}</span>
-                      )}
-                    </div>
+                    {depositCoverage.text && (
+                      <div className={`text-xs font-medium mt-1.5 ${depositCoverage.warn ? 'text-red-500' : 'text-orange-600'}`}>{depositCoverage.text}</div>
+                    )}
                   </div>
 
                   <button
@@ -852,7 +874,7 @@ const App = () => {
                         }
                       }
                     }}
-                    disabled={loading || !buyPrice || (() => { try { return ethers.parseEther(buyPrice) <= BigInt(contractData.currentPrice || '0'); } catch { return true; } })()}
+                    disabled={loading || !buyPrice || parseFloat(buyPrice) <= 0}
                     className="w-full bg-orange-500 text-white px-6 py-3 rounded-lg hover:bg-orange-600 disabled:bg-gray-400 font-bold text-lg"
                   >
                     Buy NFT
@@ -898,7 +920,7 @@ const App = () => {
         </div>
 
         {/* Footer */}
-        <div className="bg-white rounded-lg shadow-lg p-4 mt-6 mb-4 flex items-center justify-center gap-4 text-sm text-gray-500">
+        <div className="bg-white rounded-lg shadow-lg p-3 mt-6 mb-4 flex items-center justify-center flex-wrap gap-x-4 gap-y-1 text-xs sm:text-sm text-gray-500">
           <a
             href={`${EXPLORER_BASE}/address/${CONTRACT_ADDRESS}`}
             target="_blank"
@@ -908,7 +930,6 @@ const App = () => {
             <ExternalLink size={14} />
             Contract
           </a>
-          <span className="text-gray-300">|</span>
           <a
             href="https://x.com/HarburgerBot"
             target="_blank"
@@ -918,7 +939,6 @@ const App = () => {
             <Twitter size={14} />
             @HarburgerBot
           </a>
-          <span className="text-gray-300">|</span>
           <a
             href="https://github.com/herculeeza/harburger"
             target="_blank"
