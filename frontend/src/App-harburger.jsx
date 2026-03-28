@@ -1,8 +1,58 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ethers } from 'ethers';
 import { AlertCircle, Wallet, DollarSign, Tag, Gift, TrendingUp, ExternalLink, Github, Twitter, ArrowDownUp, ArrowRightLeft, ChevronDown, Pencil, Check, X } from 'lucide-react';
 import { CONTRACT_ADDRESS } from './contractABI';
 import { useHarburger } from './hooks/useHarburger';
+
+// options: [{ value, label, balance }]  —  balance is optional
+const BalanceDropdown = ({ value, onChange, options, className = '' }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const selected = options.find(o => o.value === value) || options[0];
+
+  const close = useCallback((e) => {
+    if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+  }, []);
+  useEffect(() => {
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [close]);
+
+  return (
+    <div ref={ref} className={`relative ${className}`}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-4 py-2 border rounded-lg bg-white hover:bg-gray-50 transition-colors text-left"
+      >
+        <span className="text-sm font-medium truncate">{selected?.label}</span>
+        <div className="flex items-center gap-2 shrink-0 ml-2">
+          {selected?.balance != null && (
+            <span className="text-xs font-mono text-gray-400">{selected.balance} ETH</span>
+          )}
+          <ChevronDown size={14} className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </div>
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 w-full bg-white border rounded-lg shadow-lg overflow-hidden">
+          {options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => { onChange(o.value); setOpen(false); }}
+              className={`w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-gray-50 transition-colors ${o.value === value ? 'bg-gray-50' : ''}`}
+            >
+              <span className="text-sm font-medium">{o.label}</span>
+              {o.balance != null && (
+                <span className="text-xs font-mono text-gray-400 shrink-0 ml-2">{o.balance} ETH</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const CHAIN_ID = Number(import.meta.env.VITE_CHAIN_ID || 1);
 const EXPLORER_BASE = {
@@ -133,7 +183,13 @@ const App = () => {
     let wei;
     if (addr === 'internal') wei = accountData.rawBalance;
     else { const entry = vaultBreakdown.find(e => e.address === addr); wei = entry ? entry.balance : '0'; }
-    try { return parseFloat(ethers.formatEther(wei.toString())).toFixed(4); } catch { return '0.0000'; }
+    try {
+      const val = parseFloat(ethers.formatEther(wei.toString()));
+      if (val === 0) return '0';
+      if (val < 0.0001) return '<0.0001';
+      if (val < 0.01) return val.toPrecision(2);
+      return val.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+    } catch { return '0'; }
   };
 
   const isValidRecipient = (val) => {
@@ -456,16 +512,15 @@ const App = () => {
               {dwMode === 'deposit' && (
                 <div>
                   {vaultEnabled && (
-                    <select
+                    <BalanceDropdown
                       value={depositDest}
-                      onChange={(e) => setDepositDest(e.target.value)}
-                      className="w-full mb-2 px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                    >
-                      <option value="internal">Internal ({balanceOf('internal')} ETH)</option>
-                      {strategies.map((s) => (
-                        <option key={s} value={s}>{strategyLabel(s)} ({balanceOf(s)} ETH)</option>
-                      ))}
-                    </select>
+                      onChange={setDepositDest}
+                      className="mb-2"
+                      options={[
+                        { value: 'internal', label: 'Internal Balance', balance: balanceOf('internal') },
+                        ...strategies.map(s => ({ value: s, label: strategyLabel(s), balance: balanceOf(s) })),
+                      ]}
+                    />
                   )}
                   <div className="flex gap-2">
                     <div className="flex-1 min-w-0">
@@ -499,19 +554,18 @@ const App = () => {
               {dwMode === 'withdraw' && (
                 <div>
                   {vaultEnabled && (
-                    <select
+                    <BalanceDropdown
                       value={withdrawSource}
-                      onChange={(e) => setWithdrawSource(e.target.value)}
-                      className="w-full mb-2 px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                    >
-                      <option value="internal">Internal ({balanceOf('internal')} ETH)</option>
-                      {strategies.map((s) => (
-                        <option key={s} value={s}>{strategyLabel(s)} ({balanceOf(s)} ETH)</option>
-                      ))}
-                      {vaultBreakdown.some(e => e.address === ethers.ZeroAddress) && (
-                        <option value={ethers.ZeroAddress}>Idle ({balanceOf(ethers.ZeroAddress)} ETH)</option>
-                      )}
-                    </select>
+                      onChange={setWithdrawSource}
+                      className="mb-2"
+                      options={[
+                        { value: 'internal', label: 'Internal Balance', balance: balanceOf('internal') },
+                        ...strategies.map(s => ({ value: s, label: strategyLabel(s), balance: balanceOf(s) })),
+                        ...(vaultBreakdown.some(e => e.address === ethers.ZeroAddress)
+                          ? [{ value: ethers.ZeroAddress, label: 'Vault (Idle)', balance: balanceOf(ethers.ZeroAddress) }]
+                          : []),
+                      ]}
+                    />
                   )}
                   <div className="flex gap-2">
                     <div className="flex-1 min-w-0">
@@ -547,34 +601,37 @@ const App = () => {
                   <div className="flex flex-col sm:grid sm:grid-cols-[1fr_auto_1fr] gap-2 sm:items-center">
                     <div>
                       <label className="block text-xs text-gray-500 mb-1 sm:hidden">From</label>
-                      <select
+                      <BalanceDropdown
                         value={moveFrom}
-                        onChange={(e) => setMoveFrom(e.target.value)}
-                        className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                      >
-                        <option value="internal">Internal ({balanceOf('internal')} ETH)</option>
-                        {strategies.map((s) => (
-                          <option key={s} value={s}>{strategyLabel(s)} ({balanceOf(s)} ETH)</option>
-                        ))}
-                        {vaultBreakdown.some(e => e.address === ethers.ZeroAddress) && (
-                          <option value={ethers.ZeroAddress}>Idle ({balanceOf(ethers.ZeroAddress)} ETH)</option>
-                        )}
-                      </select>
+                        onChange={setMoveFrom}
+                        options={[
+                          { value: 'internal', label: 'Internal Balance', balance: balanceOf('internal') },
+                          ...strategies.map(s => ({ value: s, label: strategyLabel(s), balance: balanceOf(s) })),
+                          ...(vaultBreakdown.some(e => e.address === ethers.ZeroAddress)
+                            ? [{ value: ethers.ZeroAddress, label: 'Vault (Idle)', balance: balanceOf(ethers.ZeroAddress) }]
+                            : []),
+                        ]}
+                      />
                     </div>
-                    <ArrowRightLeft size={16} className="text-gray-400 hidden sm:block" />
+                    <button
+                      type="button"
+                      onClick={() => { const f = moveFrom; setMoveFrom(moveTo || 'internal'); setMoveTo(f); }}
+                      className="text-gray-400 hover:text-purple-500 transition-colors hidden sm:block"
+                      title="Swap"
+                    >
+                      <ArrowRightLeft size={16} />
+                    </button>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1 sm:hidden">To</label>
-                      <select
+                      <BalanceDropdown
                         value={moveTo}
-                        onChange={(e) => setMoveTo(e.target.value)}
-                        className="w-full px-4 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                      >
-                        <option value="">Select destination</option>
-                        <option value="internal">Internal ({balanceOf('internal')} ETH)</option>
-                        {strategies.map((s) => (
-                          <option key={s} value={s}>{strategyLabel(s)} ({balanceOf(s)} ETH)</option>
-                        ))}
-                      </select>
+                        onChange={setMoveTo}
+                        options={[
+                          { value: '', label: 'Select destination' },
+                          { value: 'internal', label: 'Internal Balance', balance: balanceOf('internal') },
+                          ...strategies.map(s => ({ value: s, label: strategyLabel(s), balance: balanceOf(s) })),
+                        ]}
+                      />
                     </div>
                   </div>
                   <div className="flex gap-2">
