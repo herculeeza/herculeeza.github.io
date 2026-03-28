@@ -253,7 +253,7 @@ const App = () => {
           {aboutOpen && (
             <div className="px-6 pb-8 max-w-2xl mx-auto text-gray-700 space-y-5">
               <p className="text-sm leading-relaxed">
-                <strong>HARBURGER</strong> is a well-done implementation of Harberger taxation—an idea from economist Arnold Harberger in 1962, popularized by Weyl & Posner's <em>Radical Markets</em>.
+                <strong>HARBURGER</strong> is a well-done implementation of Harberger taxation—an idea from economist Arnold Harberger in 1965, popularized by Weyl & Posner's <em>Radical Markets</em>.
                 Owners self-assess their price and pay continuous tax on it. Anyone can buy at the declared price. Set it too low, someone snatches your lunch. Too high,
                 and the taxes eat you alive. It's a rare medium for allocative efficiency.
               </p>
