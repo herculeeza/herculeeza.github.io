@@ -30,7 +30,7 @@ const App = () => {
   const {
     account, loading, error, setError, success,
     contractData, accountData, earmark,
-    isOwner, isEarmarkReceiver, vaultBalance, walletBalance, topTaxpayers, vaultEnabled,
+    isOwner, isEarmarkReceiver, vaultBalance, walletBalance, topTaxpayers, totalAllTaxesPaid, vaultEnabled,
     strategies, strategyNames, vaultBreakdown,
     connectWallet,
     handleDeposit, handleWithdraw, handleSetPrice, handleBuyNFT,
@@ -78,6 +78,61 @@ const App = () => {
   const [vaultMgmtOpen, setVaultMgmtOpen] = useState(false);
   const [earmarkOpen, setEarmarkOpen] = useState(false);
   const [editingPrice, setEditingPrice] = useState(false);
+  const [buyModalOpen, setBuyModalOpen] = useState(false);
+  const [buyDeposit, setBuyDeposit] = useState('');
+
+  // Suggested buy price: 2x current price
+  const suggestedBuyPrice = (() => {
+    try {
+      const cp = BigInt(contractData.currentPrice || '0');
+      if (cp === 0n) return '';
+      return parseFloat(ethers.formatEther(cp * 2n)).toString();
+    } catch { return ''; }
+  })();
+
+  // Suggested deposit: 10% of new price (covers ~1 year of tax at typical rates)
+  const suggestedDeposit = (() => {
+    try {
+      const price = ethers.parseEther(buyPrice || '0');
+      if (price === 0n) return '0';
+      const tenPercent = price / 10n;
+      const currentPrice = BigInt(contractData.currentPrice || '0');
+      const total = currentPrice + tenPercent;
+      const existing = BigInt(accountData.netBalance || '0');
+      const needed = total > existing ? total - existing : 0n;
+      return needed > 0n ? parseFloat(ethers.formatEther(needed)).toFixed(6) : '0';
+    } catch {
+      return '0';
+    }
+  })();
+
+  // How long the deposit covers taxes at the new price
+  const depositCoverage = (() => {
+    try {
+      const rate = BigInt(contractData.taxRate || '0');
+      if (rate === 0n) return '';
+      const price = ethers.parseEther(buyPrice || '0');
+      if (price === 0n) return '';
+      const deposit = ethers.parseEther(buyDeposit || '0');
+      const existing = BigInt(accountData.netBalance || '0');
+      // After buying, balance = existing + deposit - currentPrice
+      const currentPrice = BigInt(contractData.currentPrice || '0');
+      const balanceAfterBuy = existing + deposit - currentPrice;
+      if (balanceAfterBuy <= 0n) return '';
+      // taxPerSecond = price * rate / 1e18
+      const taxPerSec = price * rate;
+      if (taxPerSec === 0n) return '';
+      // seconds covered = balanceAfterBuy * 1e18 / taxPerSec
+      const seconds = balanceAfterBuy * (10n ** 18n) / taxPerSec;
+      const days = Number(seconds) / 86400;
+      if (days < 1) return 'less than a day';
+      if (days < 30) return `~${Math.floor(days)} day${Math.floor(days) !== 1 ? 's' : ''}`;
+      const months = days / 30;
+      if (months < 12) return `~${Math.floor(months)} month${Math.floor(months) !== 1 ? 's' : ''}`;
+      const years = months / 12;
+      return `~${years.toFixed(1)} year${years >= 1.5 ? 's' : ''}`;
+    } catch { return ''; }
+  })();
 
   const isValidRecipient = (val) => {
     if (!val) return false;
@@ -198,17 +253,28 @@ const App = () => {
             </h2>
             <div className="bg-orange-50 rounded-lg p-4 mb-4">
               <div className="text-sm text-orange-700">Current Price</div>
-              <div className="flex items-center gap-2">
-                <div className="font-bold text-2xl text-orange-600 font-mono">
-                  {formatEther(contractData.currentPrice)} ETH
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="font-bold text-2xl text-orange-600 font-mono">
+                    {formatEther(contractData.currentPrice)} ETH
+                  </div>
+                  {isOwner && !editingPrice && (
+                    <button
+                      onClick={() => setEditingPrice(true)}
+                      className="text-orange-400 hover:text-orange-600 transition-colors"
+                      title="Change price"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                  )}
                 </div>
-                {isOwner && !editingPrice && (
+                {account && !isOwner && (
                   <button
-                    onClick={() => setEditingPrice(true)}
-                    className="text-orange-400 hover:text-orange-600 transition-colors"
-                    title="Change price"
+                    onClick={() => setBuyModalOpen(true)}
+                    disabled={loading}
+                    className="bg-orange-500 text-white px-4 py-1.5 rounded-lg hover:bg-orange-600 disabled:bg-gray-400 font-bold text-sm transition-colors"
                   >
-                    <Pencil size={16} />
+                    Buy
                   </button>
                 )}
               </div>
@@ -269,7 +335,12 @@ const App = () => {
                 <TrendingUp size={20} className="text-orange-500" />
                 Patty Daddies
               </h2>
-              <p className="text-xs text-gray-400 mb-4">Ranked by total taxes paid</p>
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-xs text-gray-400">Ranked by total taxes paid</p>
+                {totalAllTaxesPaid !== '0' && (
+                  <span className="text-xs text-gray-400">Total: <span className="font-mono font-semibold text-green-600">{formatEther(totalAllTaxesPaid)} ETH</span></span>
+                )}
+              </div>
               <div className="space-y-2">
                 {topTaxpayers.map((entry, i) => (
                   <div key={entry.address} className="flex items-center gap-3">
@@ -283,7 +354,7 @@ const App = () => {
                         </ExplorerLink>
                         {entry.address === account && <span className="text-xs text-green-600 font-semibold shrink-0">You</span>}
                       </div>
-                      <span className="font-mono font-bold text-sm text-orange-600 shrink-0">{formatEther(entry.total)} ETH</span>
+                      <span className="font-mono font-bold text-sm text-green-600 shrink-0">{formatEther(entry.total)} ETH</span>
                     </div>
                   </div>
                 ))}
@@ -331,8 +402,8 @@ const App = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-gray-50 rounded-lg p-3">
                   <div className="text-xs text-gray-500">Taxes Paid</div>
-                  <div className="font-bold font-mono mt-0.5">
-                    {formatEther((BigInt(accountData.totalTaxesPaid || '0') + BigInt(accountData.taxesOwed || '0')).toString())} ETH
+                  <div className="font-bold font-mono mt-0.5 text-green-600">
+                    {formatEther((BigInt(accountData.totalTaxesPaid || '0') + BigInt(accountData.taxesOwed || '0') + BigInt(accountData.debt || '0')).toString())} ETH
                   </div>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">
@@ -732,19 +803,22 @@ const App = () => {
               </div>
             )}
 
-            {/* Buy NFT */}
-            {!isOwner && (
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                <h2 className="text-xl font-bold mb-4">Buy This NFT</h2>
-                <div className="space-y-4">
+            {/* Buy NFT Modal */}
+            {buyModalOpen && !isOwner && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setBuyModalOpen(false)}>
+                <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4 space-y-4" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-xl font-bold">Buy Harburger</h2>
+                    <button onClick={() => setBuyModalOpen(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+                  </div>
+
                   <div className="bg-orange-50 p-4 rounded-lg">
                     <div className="text-sm text-gray-600 mb-1">Purchase Price</div>
-                    <div className="text-2xl font-bold text-orange-600">
-                      {formatEther(contractData.currentPrice)} ETH
-                    </div>
+                    <div className="text-2xl font-bold text-orange-600 font-mono">{formatEther(contractData.currentPrice)} ETH</div>
                   </div>
+
                   <div>
-                    <label className="block text-sm font-medium mb-2">Your New Price (ETH)</label>
+                    <label className="block text-sm font-medium mb-1">Your New Price (ETH)</label>
                     <input
                       type="number" min="0"
                       value={buyPrice}
@@ -752,15 +826,62 @@ const App = () => {
                       placeholder="0.002"
                       step="0.001"
                       className="w-full px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                      autoFocus
                     />
+                    {suggestedBuyPrice && !buyPrice && (
+                      <button
+                        type="button"
+                        onClick={() => setBuyPrice(suggestedBuyPrice)}
+                        className="mt-1 text-xs text-orange-500 hover:text-orange-700 font-medium"
+                      >
+                        Suggested: {suggestedBuyPrice} ETH (2x current)
+                      </button>
+                    )}
                   </div>
-                  <p className="text-xs text-gray-500">
-                    Payment comes from your deposited balance, not your wallet. Deposit at least {formatEther(contractData.currentPrice)} ETH first.
-                  </p>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Deposit Amount (ETH)</label>
+                    <input
+                      type="number" min="0"
+                      value={buyDeposit}
+                      onChange={(e) => setBuyDeposit(e.target.value)}
+                      placeholder="0"
+                      step="0.001"
+                      className="w-full px-4 py-2 border rounded-lg placeholder:text-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    />
+                    {buyPrice && parseFloat(buyPrice) > 0 && suggestedDeposit !== '0' && (
+                      <button
+                        type="button"
+                        onClick={() => setBuyDeposit(suggestedDeposit)}
+                        className="mt-1 text-xs text-orange-500 hover:text-orange-700 font-medium"
+                      >
+                        Suggested: {suggestedDeposit} ETH (10% of price — ~1 year of taxes)
+                      </button>
+                    )}
+                    <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
+                      <span>Your balance: <span className="font-mono font-medium text-gray-700">{formatEther(accountData.netBalance)} ETH</span></span>
+                      {depositCoverage && (
+                        <span className="text-orange-600 font-medium">Covers {depositCoverage}</span>
+                      )}
+                    </div>
+                  </div>
+
                   <button
-                    onClick={async () => { if (await handleBuyNFT(buyPrice)) setBuyPrice(''); }}
+                    onClick={async () => {
+                      let ok = true;
+                      if (buyDeposit && parseFloat(buyDeposit) > 0) {
+                        ok = await handleDeposit(buyDeposit);
+                      }
+                      if (ok) {
+                        if (await handleBuyNFT(buyPrice)) {
+                          setBuyPrice('');
+                          setBuyDeposit('');
+                          setBuyModalOpen(false);
+                        }
+                      }
+                    }}
                     disabled={loading || !buyPrice || parseFloat(buyPrice) <= 0}
-                    className="w-full bg-orange-500 text-white px-6 py-3 rounded-lg hover:bg-orange-600 disabled:bg-gray-400 font-bold"
+                    className="w-full bg-orange-500 text-white px-6 py-3 rounded-lg hover:bg-orange-600 disabled:bg-gray-400 font-bold text-lg"
                   >
                     Buy NFT
                   </button>

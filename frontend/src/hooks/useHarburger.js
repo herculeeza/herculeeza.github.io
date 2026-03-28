@@ -271,29 +271,56 @@ export function useHarburger() {
       const currentBlock = await provider.getBlockNumber();
       const filter = c.filters.TaxPaid();
       // Public RPCs cap eth_getLogs to ~50k blocks per request.
-      // Scan back in chunks — 3 chunks covers ~3 weeks on Sepolia/mainnet.
+      // Scan backwards in chunks. Stop after 3 consecutive empty chunks
+      // (tolerates quiet periods without missing older events).
       const CHUNK = 49_000;
-      const MAX_CHUNKS = 5;
       let events = [];
       let to = currentBlock;
-      for (let i = 0; i < MAX_CHUNKS && to > 0; i++) {
+      let emptyRun = 0;
+      while (to > 0) {
         const from = Math.max(0, to - CHUNK);
         const chunk = await c.queryFilter(filter, from, to);
         events = events.concat(chunk);
+        emptyRun = chunk.length > 0 ? 0 : emptyRun + 1;
+        if (emptyRun >= 3) break;
         if (from === 0) break;
         to = from - 1;
       }
-      const totals = {};
-      for (const e of events) {
-        const payer = e.args[0];
-        const amount = e.args[1];
-        totals[payer] = (totals[payer] || 0n) + amount;
+      // Also scan NFTSold to discover owners who accrued debt (not TaxPaid)
+      const soldFilter = c.filters.NFTSold();
+      to = currentBlock;
+      emptyRun = 0;
+      while (to > 0) {
+        const from = Math.max(0, to - CHUNK);
+        const chunk = await c.queryFilter(soldFilter, from, to);
+        for (const e of chunk) {
+          // args: from, to, price — both buyer and seller may have tax history
+          events.push({ args: [e.args[0]] });
+          events.push({ args: [e.args[1]] });
+        }
+        emptyRun = chunk.length > 0 ? 0 : emptyRun + 1;
+        if (emptyRun >= 3) break;
+        if (from === 0) break;
+        to = from - 1;
       }
-      const sorted = Object.entries(totals)
-        .map(([address, total]) => ({ address, total: total.toString() }))
+      // Collect unique addresses
+      const payers = [...new Set(events.map(e => e.args[0]))];
+      // Read on-chain totals (totalTaxesPaid + debt = total taxes charged)
+      const accountInfos = await Promise.all(payers.map(addr => c.accounts(addr)));
+      let allTotal = 0n;
+      const entries = [];
+      for (let i = 0; i < payers.length; i++) {
+        const info = accountInfos[i];
+        const total = info.totalTaxesPaid + info.debt;
+        if (total === 0n) continue;
+        allTotal += total;
+        entries.push({ address: payers[i], total: total.toString() });
+      }
+      const sorted = entries
         .sort((a, b) => (BigInt(b.total) > BigInt(a.total) ? 1 : -1))
         .slice(0, 10);
       setTopTaxpayers(sorted);
+      setTotalAllTaxesPaid(allTotal.toString());
     } catch (err) { console.error('Error loading top taxpayers:', err); }
   }, [contract, readContract]);
 
@@ -305,6 +332,7 @@ export function useHarburger() {
   const [vaultBreakdown, setVaultBreakdown] = useState([]);
   const [walletBalance, setWalletBalance] = useState('0');
   const [topTaxpayers, setTopTaxpayers] = useState([]);
+  const [totalAllTaxesPaid, setTotalAllTaxesPaid] = useState('0');
 
   const loadAccountData = useCallback(async () => {
     if (!account || !contract) return;
@@ -517,7 +545,7 @@ export function useHarburger() {
   return {
     account, loading, error, setError, success,
     contractData, accountData, earmark,
-    isOwner, isEarmarkReceiver, vaultBalance, walletBalance, topTaxpayers,
+    isOwner, isEarmarkReceiver, vaultBalance, walletBalance, topTaxpayers, totalAllTaxesPaid,
     vaultEnabled: accountData.usesVault && !!vaultContract,
     strategies, strategyNames, vaultBreakdown,
     connectWallet,
