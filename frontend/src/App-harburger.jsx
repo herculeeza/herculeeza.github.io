@@ -265,10 +265,11 @@ const App = () => {
           {/* Top Taxpayers — visible without wallet */}
           {topTaxpayers.length > 0 && (
             <div className="bg-white rounded-lg shadow-lg p-6">
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+              <h2 className="text-xl font-bold flex items-center gap-2">
                 <TrendingUp size={20} className="text-orange-500" />
                 Patty Daddies
               </h2>
+              <p className="text-xs text-gray-400 mb-4">Ranked by total taxes paid</p>
               <div className="space-y-2">
                 {topTaxpayers.map((entry, i) => (
                   <div key={entry.address} className="flex items-center gap-3">
