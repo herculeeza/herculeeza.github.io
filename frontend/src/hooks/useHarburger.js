@@ -264,8 +264,12 @@ export function useHarburger() {
     const c = contract || readContract;
     if (!c) return;
     try {
+      const provider = c.runner?.provider || c.runner;
+      const currentBlock = await provider.getBlockNumber();
+      // Public RPCs limit eth_getLogs range; scan last ~100k blocks
+      const fromBlock = Math.max(0, currentBlock - 100_000);
       const filter = c.filters.TaxPaid();
-      const events = await c.queryFilter(filter, 0, 'latest');
+      const events = await c.queryFilter(filter, fromBlock, 'latest');
       const totals = {};
       for (const e of events) {
         const payer = e.args[0];
