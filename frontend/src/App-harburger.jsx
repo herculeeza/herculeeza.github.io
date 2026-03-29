@@ -26,9 +26,9 @@ const BalanceDropdown = ({ value, onChange, options, className = '' }) => {
         className="w-full flex items-center justify-between px-4 py-2 border rounded-lg bg-white hover:bg-gray-50 transition-colors text-left"
       >
         <span className="text-sm font-medium truncate">{selected?.label}</span>
-        <div className="flex items-center gap-2 shrink-0 ml-2">
+        <div className="flex items-center gap-2 shrink-0 ml-2 max-w-[45%]">
           {selected?.balance != null && (
-            <span className="text-xs font-mono text-gray-400">{selected.balance} ETH</span>
+            <span className="text-xs font-mono text-gray-400 truncate">{selected.balance} ETH</span>
           )}
           <ChevronDown size={14} className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
         </div>
@@ -901,7 +901,7 @@ const App = () => {
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="flex flex-wrap items-center justify-between gap-x-2 mb-1">
                       <label className="text-sm font-medium">Deposit Amount (ETH)</label>
                       <span className="text-xs text-gray-500">Balance: <span className="font-mono font-medium text-gray-700">{formatEther(accountData.netBalance)} ETH</span></span>
                     </div>
