@@ -311,9 +311,9 @@ const App = () => {
             </h2>
             <div className="bg-purple-50 rounded-lg p-4 mb-4">
               <div className="text-sm text-purple-700">Current Price</div>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <div className="font-bold text-2xl text-purple-600 font-mono">
+                  <div className="font-bold text-xl sm:text-2xl text-purple-600 font-mono">
                     {formatEther(contractData.currentPrice)} ETH
                   </div>
                   {isOwner && !editingPrice && (
@@ -397,7 +397,7 @@ const App = () => {
                 <TrendingUp size={20} className="text-orange-500" />
                 Patty Daddies
               </h2>
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-0.5">
                 <p className="text-xs text-gray-400">Ranked by total patronage</p>
                 {totalAllTaxesPaid !== '0' && (
                   <span className="text-xs text-gray-400">Total: <span className="font-mono font-semibold text-gray-800">{formatEther(totalAllTaxesPaid)} ETH</span></span>
@@ -409,10 +409,10 @@ const App = () => {
                     <div className="w-7 text-center font-bold text-sm shrink-0">
                       {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-gray-400">{i + 1}</span>}
                     </div>
-                    <div className="flex-1 min-w-0 flex items-center justify-between gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                    <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 sm:gap-2 bg-gray-50 rounded-lg px-3 py-2">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <ExplorerLink address={entry.address}>
-                          <span className="font-mono text-sm">{formatAddress(entry.address)}</span>
+                          <span className="font-mono text-sm truncate">{formatAddress(entry.address)}</span>
                         </ExplorerLink>
                         {entry.address === account && <span className="text-xs text-green-600 font-semibold shrink-0">You</span>}
                       </div>
@@ -443,11 +443,11 @@ const App = () => {
               </h2>
               <div className="bg-green-50 rounded-lg p-4 mb-4">
                 <div className="text-sm text-green-700">Balance</div>
-                <div className="font-bold text-2xl text-green-600 font-mono">
+                <div className="font-bold text-xl sm:text-2xl text-green-600 font-mono break-all">
                   {formatEther(accountData.netBalance)} ETH
                 </div>
                 {accountData.usesVault && (
-                  <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                  <div className="flex flex-col sm:flex-row gap-1 sm:gap-4 mt-2 text-xs text-gray-500">
                     <span>Internal: <span className="font-mono font-medium text-gray-700">{formatEther(accountData.rawBalance)}</span></span>
                     <span>Vault: <span className="font-mono font-medium text-purple-600">{formatEther(vaultBalance)}</span></span>
                   </div>
